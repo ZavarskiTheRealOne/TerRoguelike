@@ -178,6 +178,16 @@ namespace TerRoguelike.Systems
             "TerRoguelike/Tracks/FinalBoss2Start",
             "TerRoguelike/Tracks/FinalBoss2End",
             0.45f);
+        public static BossTheme JstcTheme = new(
+            "TerRoguelike/Tracks/JstcTheme",
+            "TerRoguelike/Tracks/JstcThemeStart",
+            Silence,
+            0.52f);
+        public static BossTheme Jstc2Theme = new(
+            "TerRoguelike/Tracks/Jstc2Theme",
+            "TerRoguelike/Tracks/Jstc2ThemeStart",
+            Silence,
+            0.52f);
 
 
         public static void FillMusicDictionary()
@@ -251,7 +261,11 @@ namespace TerRoguelike.Systems
                 FinalBoss2PreludeTheme.StartTrack,
                 FinalBoss2Theme.BattleTrack,
                 FinalBoss2Theme.StartTrack,
-                FinalBoss2Theme.EndTrack
+                FinalBoss2Theme.EndTrack,
+                JstcTheme.BattleTrack,
+                JstcTheme.StartTrack,
+                Jstc2Theme.BattleTrack,
+                Jstc2Theme.StartTrack
             };
             foreach (string path in pathList)
             {
@@ -278,6 +292,9 @@ namespace TerRoguelike.Systems
         }
         public static void SetBossTrack(BossTheme bossTheme, float fadeRateMulti = 1)
         {
+            if (TerRoguelikeWorld.escape)
+                return;
+
             BossIntroStopwatch.Reset();
 
             ActiveBossTheme = new BossTheme(bossTheme);
@@ -510,9 +527,16 @@ namespace TerRoguelike.Systems
                         BossIntroProgress += difference;
                         if (BossIntroProgress + difference >= BossIntroDuration)
                         {
+                            bool enable = false;
+                            if (PauseWhenIngamePaused)
+                                enable = true;
+
                             SetCombat(ActiveBossTheme.BattleTrack, true, fadeRateMultiplier);
                             ActiveBossTheme.startFlag = false;
                             BossIntroStopwatch.Reset();
+
+                            if (enable)
+                                PauseWhenIngamePaused = true;
                         }
                     }
 
@@ -526,9 +550,16 @@ namespace TerRoguelike.Systems
 
                     if (ActiveBossTheme.endFlag)
                     {
+                        bool enable = false;
+                        if (PauseWhenIngamePaused)
+                            enable = true;
+
                         SetCombat(ActiveBossTheme.EndTrack, false, fadeRateMultiplier);
                         ActiveBossTheme.endFlag = false;
                         ActiveBossTheme.startFlag = false;
+
+                        if (enable)
+                            PauseWhenIngamePaused = true;
                     }
                 }
                 else

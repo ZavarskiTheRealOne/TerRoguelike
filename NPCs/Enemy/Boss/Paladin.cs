@@ -20,6 +20,7 @@ using static TerRoguelike.Systems.RoomSystem;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
 using static TerRoguelike.Systems.EnemyHealthBarSystem;
 using static TerRoguelike.MainMenu.TerRoguelikeMenu;
+using TerRoguelike.World;
 
 namespace TerRoguelike.NPCs.Enemy.Boss
 {
@@ -64,6 +65,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 32;
             NPC.height = 56;
             NPC.aiStyle = -1;
@@ -72,14 +74,14 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.HitSound = SoundID.NPCHit4;
             NPC.DeathSound = SoundID.NPCDeath6;
             NPC.knockBackResist = 0f;
-            modNPC.drawCenter = new Vector2(0, -12);
+            modNPC.drawCenter = new Vector2(0, 0);
             hammerTex = TexDict["PaladinHammer"];
             godRayTex = TexDict["GodRay"];
+            modNPC.IgniteCentered = true;
         }
         public override void OnSpawn(IEntitySource source)
         {
-            NPC.immortal = true;
-            NPC.dontTakeDamage = true;
+            NPC.immortal = NPC.dontTakeDamage = true;
             currentFrame = Main.npcFrameCount[Type] - 1;
             NPC.localAI[0] = -270;
             NPC.direction = -1;
@@ -99,7 +101,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 SetBossTrack(PaladinTheme);
             }
 
-            ableToHit = !(NPC.ai[0] == Slam.Id && NPC.ai[1] >= slamTelegraph && NPC.ai[1] <= slamTelegraph + slamRise + slamFall) && deadTime == 0;
+            ableToHit = !(NPC.ai[0] == Slam.Id && NPC.ai[1] >= slamTelegraph && NPC.ai[1] <= slamTelegraph + slamRise + slamFall) && deadTime == 0 && NPC.localAI[0] > -30;
 
             if (NPC.collideY)
                 NPC.localAI[1] = 0;
@@ -111,19 +113,21 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 spawnPos = NPC.Center;
                 if (NPC.localAI[0] == -210)
                 {
-                    CutsceneSystem.SetCutscene(NPC.Center, 210, 30, 30, 2.5f);
+                    CutsceneSystem.SetCutscene(NPC.Center, 210, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                     SoundEngine.PlaySound(SoundID.DD2_BetsyFireballShot with { Volume = 1f, Pitch = -1.3f }, NPC.Center);
                 }
                 if (NPC.localAI[0] == -150)
                 {
                     SlamEffect();
+                    NPC.immortal = NPC.dontTakeDamage = !TerRoguelikeWorld.escape;
                 }
                 NPC.localAI[0]++;
                 if (NPC.localAI[0] == -30)
                 {
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
             }
             else
@@ -134,7 +138,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
 
@@ -256,13 +260,15 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         NPC.velocity.X = -chargeSpeed * NPC.direction * 0.55f;
                         NPC.velocity.Y = -chargeSpeed * 0.4f;
 
-                        for (int i = 0; i < 12; i++)
+                        bool ruin = RuinedMoonActive;
+                        int spawnCount = ruin ? 48 : 12;
+                        for (int i = 0; i < spawnCount; i++)
                         {
                             Point tilePos = Point.Zero;
                             int valid = -1;
                             for (int j = 0; j < 5; j++)
                             {
-                                tilePos = (NPC.Center + new Vector2(Main.rand.NextFloat(-800, 60) * NPC.direction, -480)).ToTileCoordinates();
+                                tilePos = (NPC.Center + new Vector2(Main.rand.NextFloat(ruin ? -1800 : -800, 60) * NPC.direction, -480)).ToTileCoordinates();
                                 Tile tile = ParanoidTileRetrieval(tilePos.X, tilePos.Y);
                                 if (!tile.IsTileSolidGround(true))
                                     continue;
@@ -724,13 +730,16 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             {
                 Projectile.NewProjectile(NPC.GetSource_FromThis(), NPC.Center + new Vector2(0, 10), new Vector2(i * 6, 16), ModContent.ProjectileType<Shockwave>(), NPC.damage, 0f);
             }
-            for (int i = 0; i < 8; i++)
+            bool ruin = RuinedMoonActive;
+            int spawnCount = ruin ? 40 : 8;
+            for (int i = 0; i < spawnCount; i++)
             {
                 Point tilePos = Point.Zero;
                 int valid = -1;
                 for (int j = 0; j < 5; j++)
                 {
-                    tilePos = (NPC.Center + new Vector2(Main.rand.NextFloat(-400, 400) * NPC.direction, -480)).ToTileCoordinates();
+                    int randRange = ruin ? 1200 : 400;
+                    tilePos = (NPC.Center + new Vector2(Main.rand.NextFloat(-randRange, randRange) * NPC.direction, -480)).ToTileCoordinates();
                     Tile tile = ParanoidTileRetrieval(tilePos.X, tilePos.Y);
                     if (!tile.IsTileSolidGround(true))
                         continue;
@@ -786,8 +795,11 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.active = true;
             if (deadTime == 0)
             {
+                modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 enemyHealthBar.ForceEnd(0);
-                CutsceneSystem.SetCutscene(NPC.Center, 210, 30, 30, 2.5f);
+                CutsceneSystem.SetCutscene(NPC.Center, 210, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 if (modNPC.isRoomNPC)
                 {
                     if (ActiveBossTheme != null)

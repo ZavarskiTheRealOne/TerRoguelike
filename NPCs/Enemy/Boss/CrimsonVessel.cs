@@ -23,6 +23,7 @@ using static TerRoguelike.Systems.RoomSystem;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
 using static TerRoguelike.Systems.EnemyHealthBarSystem;
 using static TerRoguelike.MainMenu.TerRoguelikeMenu;
+using TerRoguelike.World;
 
 namespace TerRoguelike.NPCs.Enemy.Boss
 {
@@ -97,6 +98,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 156;
             NPC.height = 112;
             NPC.aiStyle = -1;
@@ -119,8 +121,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             deathGodRayRotOffset = Main.rand.NextFloat(MathHelper.TwoPi);
             deathGodRayDirection = Main.rand.NextBool() ? -1 : 1;
             seerOrbitCenter = NPC.Center + modNPC.drawCenter;
-            NPC.immortal = true;
-            NPC.dontTakeDamage = true;
+            NPC.immortal = NPC.dontTakeDamage = true;
             currentFrame = 4;
             NPC.localAI[0] = -(cutsceneDuration + 30);
             NPC.direction = -1;
@@ -130,6 +131,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.ai[1] = -48;
             NPC.localAI[1] = -1;
             ableToHit = false;
+            if (RuinedMoonActive)
+                healCountdown /= 2;
         }
         public override void AI()
         {
@@ -163,11 +166,12 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 spawnPos = NPC.Center;
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(NPC.Center, cutsceneDuration, 30, 30, 2.5f);
+                    CutsceneSystem.SetCutscene(NPC.Center, cutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 }
                 NPC.localAI[0]++;
                 if (NPC.localAI[0] < seerSpawnTime - 230 && NPC.localAI[0] >= seerSpawnTime - 271)
                 {
+                    NPC.immortal = NPC.dontTakeDamage = !TerRoguelikeWorld.escape;
                     TeleportAI(spawnPos);
                     if (NPC.localAI[0] >= seerSpawnTime - 271 + teleportMoveTimestamp)
                         NPC.hide = false;
@@ -197,7 +201,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         rumbleSound.Update();
                     }
                 }
-                if (NPC.localAI[0] < -30 && NPC.localAI[0] >= -30 - seerSpawnTime)
+                int target = RuinedMoonActive ? -27 : -30;
+                if (NPC.localAI[0] < target && NPC.localAI[0] >= -30 - seerSpawnTime)
                 {
                     if (SoundEngine.TryGetActiveSound(RumbleSlot, out var rumbleSound) && rumbleSound.IsPlaying)
                     {
@@ -208,16 +213,17 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     }
                     SpawnSeers();
                 }
-                if (NPC.localAI[0] == -30)
+                if (NPC.localAI[0] == target)
                 {
                     NPC.hide = false;
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
                     NPC.ai[1] = 0;
                     NPC.ai[3] = 0;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
-                if (NPC.localAI[0] < -30)
+                if (NPC.localAI[0] < target)
                     NPC.ai[1]++;
             }
             else
@@ -241,7 +247,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
 
@@ -381,6 +387,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     NPC.ai[2] = Heal.Id;
                     NPC.ai[3] = 0;
                     healCountdown = setHealTime + Main.rand.Next(-60, 0);
+                    if (RuinedMoonActive)
+                        healCountdown /= 2;
                 }
             }
             else if (NPC.ai[0] == BouncyBall.Id)
@@ -707,7 +715,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void SpawnSeers()
         {
-            int seerCount = 8;
+            int seerCount = RuinedMoonActive ? 16 : 8;
             int seerRate = seerSpawnTime / (seerCount - 1);
             if ((NPC.ai[1] - (Heal.Duration - seerSpawnTime)) % seerRate == 0)
             {
@@ -817,9 +825,12 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
             if (deadTime == 0)
             {
+                modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 enemyHealthBar.ForceEnd(0);
                 TeleportSlot = SoundEngine.PlaySound(SoundID.DD2_KoboldIgniteLoop with { Volume = 0.5f }, NPC.Center);
-                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f);
+                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 if (modNPC.isRoomNPC)
                 {
                     if (ActiveBossTheme != null)
@@ -893,7 +904,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         {
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 25.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 2000.0; i++)
                 {
                     Dust.NewDust(NPC.position, NPC.width, NPC.height, 5, hit.HitDirection, -1f);
                 }

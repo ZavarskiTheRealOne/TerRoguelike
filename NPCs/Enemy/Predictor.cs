@@ -48,6 +48,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.knockBackResist = 0.4f;
             modNPC.drawCenter = new Vector2(0, -5);
             lightTex = TexDict["PredictorGlow"];
+            NPC.lavaImmune = true;
         }
         public override void OnSpawn(IEntitySource source)
         {
@@ -68,7 +69,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.ai[0] = 0;
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 20.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 50.0; i++)
                 {
                     Dust.NewDust(NPC.position, NPC.width, NPC.height, 249, hit.HitDirection, -1f);
                     if (Main.rand.NextBool(4))
@@ -114,7 +115,7 @@ namespace TerRoguelike.NPCs.Enemy
             {
                 currentFrame = NPC.velocity.Y == 0 ? (int)(NPC.frameCounter % (frameCount - 4)) + 2 : 1;
             }
-            NPC.frame = new Rectangle(0, currentFrame * frameHeight, TextureAssets.Npc[modNPCID].Value.Width, frameHeight);
+            NPC.frame = new Rectangle(0, currentFrame * frameHeight + 1, TextureAssets.Npc[modNPCID].Value.Width, frameHeight - 1);
         }
         public override void PostDraw(SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)
         {

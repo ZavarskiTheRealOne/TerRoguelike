@@ -115,6 +115,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 60;
             NPC.height = 88;
             NPC.aiStyle = -1;
@@ -434,7 +435,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(NPC.Center + new Vector2(0, -200), cutsceneDuration, 30, 30, 1.25f);
+                    CutsceneSystem.SetCutscene(NPC.Center + new Vector2(0, -200), cutsceneDuration, 30, 30, 1.25f, CutsceneSystem.CutsceneSource.Boss);
                 }
                 NPC.localAI[0]++;
 
@@ -483,7 +484,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     NPC.localAI[1] = 0;
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI, headWho, leftHandWho, rightHandWho], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI, headWho, leftHandWho, rightHandWho], NPC.GivenOrTypeName);
                 }
             }
             else
@@ -494,7 +496,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
             NPC.ai[1]++;
@@ -898,6 +900,14 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 else
                 {
                     int time = (int)NPC.ai[1] - deathrayWindup;
+                    if (RuinedMoonActive)
+                    {
+                        if (time > 90 && timeToEnd > 20 && Main.rand.NextBool(9))
+                        {
+                            time -= 5;
+                            NPC.ai[1] -= 5;
+                        }
+                    }
                     if (NPC.ai[1] == deathrayWindup)
                     {
                         DeathraySlot = SoundEngine.PlaySound(SoundID.Zombie104 with { Volume = 0.7f, Pitch = -0.25f }, NPC.Center + new Vector2(0, -80));
@@ -1072,6 +1082,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 NPC.velocity = Vector2.Zero;
                 NPC.rotation = 0;
                 modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
 
                 if (modNPC.isRoomNPC)
                 {
@@ -1096,7 +1108,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 {
                     Main.npc[rightHandWho].ai[0] = 1;
                 }
-                CutsceneSystem.SetCutscene(NPC.Center + new Vector2(0, -200), deathCutsceneDuration, 30, 30, 1.000001f);
+                CutsceneSystem.SetCutscene(NPC.Center + new Vector2(0, -200), deathCutsceneDuration, 30, 30, 1.000001f, CutsceneSystem.CutsceneSource.Boss);
             }
 
             void ClearChildren()
@@ -1276,7 +1288,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             if (NPC.life > 0 && deadTime == 0)
             {
                 SoundEngine.PlaySound(SoundID.NPCHit1 with { Volume = 1f }, NPC.Center);
-                for (int i = 0; (double)i < hit.Damage * 0.01d; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 1000.0; i++)
                 {
                     int d = Dust.NewDust(NPC.position, NPC.width, NPC.height, DustID.Vortex, hit.HitDirection, -1f);
                     Main.dust[d].noLight = true;
@@ -1462,7 +1474,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public override void FindFrame(int frameHeight)
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             bool leftHandAlive = leftHandWho >= 0 && Main.npc[leftHandWho].life > 1;
             bool rightHandAlive = rightHandWho >= 0 && Main.npc[rightHandWho].life > 1;

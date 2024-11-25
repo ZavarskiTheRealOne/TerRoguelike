@@ -18,6 +18,7 @@ using Microsoft.Xna.Framework.Graphics.PackedVector;
 using static TerRoguelike.Schematics.SchematicManager;
 using static TerRoguelike.Managers.TextureManager;
 using Terraria.Graphics.Shaders;
+using TerRoguelike.Utilities;
 
 namespace TerRoguelike.NPCs.Enemy
 {
@@ -49,6 +50,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.noGravity = true;
             lightTex = TexDict["StarCellGlow"];
             modNPC.OverrideIgniteVisual = true;
+            NPC.lavaImmune = true;
         }
         public override void AI()
         {
@@ -59,7 +61,7 @@ namespace TerRoguelike.NPCs.Enemy
         {
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < 5.0 + hit.Damage / 10.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 200.0; i++)
                 {
                     int width = NPC.width / 4;
                     int dust = Dust.NewDust(NPC.Center - Vector2.One * (float)width, width * 2, width * 2, DustID.Clentaminator_Cyan);
@@ -120,6 +122,7 @@ namespace TerRoguelike.NPCs.Enemy
             Texture2D tex = TextureAssets.Npc[Type].Value;
             Vector2 offset = new Vector2(NPC.width * 0.5f, NPC.height * 0.5f);
 
+            TerRoguelikeUtils.StartVanillaSpritebatch();
             for (int i = 1; i < NPC.oldPos.Length; i++)
             {
                 float opacity = MathHelper.Lerp(0.18f, 0, (float)i / NPC.oldPos.Length);
@@ -143,9 +146,8 @@ namespace TerRoguelike.NPCs.Enemy
                 {
                     spriteBatch.Draw(tex, NPC.Center - Main.screenPosition + ((j * MathHelper.TwoPi + NPC.rotation).ToRotationVector2() * outlineThickness) + (Vector2.UnitY * NPC.gfxOffY) + modNPC.drawCenter, NPC.frame, drawColor, NPC.rotation, NPC.frame.Size() * 0.5f, NPC.scale, SpriteEffects.None, 0f);
                 }
-                spriteBatch.End();
-                spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
             }
+            modNPC.EliteEffectSpritebatch(NPC, new());
 
             Main.EntitySpriteDraw(tex, NPC.Center - Main.screenPosition + (Vector2.UnitY * NPC.gfxOffY) + modNPC.drawCenter, NPC.frame, drawColor, NPC.rotation, NPC.frame.Size() * 0.5f, NPC.scale, SpriteEffects.None);
             Main.EntitySpriteDraw(lightTex, NPC.Center - Main.screenPosition + (Vector2.UnitY * NPC.gfxOffY) + modNPC.drawCenter, NPC.frame, Color.White, NPC.rotation, NPC.frame.Size() * 0.5f, NPC.scale, SpriteEffects.None);

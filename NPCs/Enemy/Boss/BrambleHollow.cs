@@ -20,6 +20,7 @@ using static TerRoguelike.Systems.RoomSystem;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
 using static TerRoguelike.Systems.EnemyHealthBarSystem;
 using static TerRoguelike.MainMenu.TerRoguelikeMenu;
+using TerRoguelike.World;
 
 namespace TerRoguelike.NPCs.Enemy.Boss
 {
@@ -72,6 +73,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 128;
             NPC.height = 128;
             NPC.aiStyle = -1;
@@ -86,14 +88,14 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             fireTex = TexDict["TallFire"];
             NPC.behindTiles = true;
             NPC.noGravity = true;
+            modNPC.IgniteCentered = true;
         }
         public override void OnSpawn(IEntitySource source)
         {
             //NPC ai 3 is used for the current cardinal direction the npc is. 0 - down, 1 - left, -1 - right, 2 - up 
             NPC.ai[3] = 0;
 
-            NPC.immortal = true;
-            NPC.dontTakeDamage = true;
+            NPC.immortal = NPC.dontTakeDamage = !TerRoguelikeWorld.escape;
             currentFrame = 0;
             horizontalFrame = 0;
             NPC.localAI[0] = -(cutsceneDuration + 30);
@@ -125,7 +127,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 spawnPos = NPC.Center;
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(NPC.Center, cutsceneDuration, 30, 30, 2.5f);
+                    CutsceneSystem.SetCutscene(NPC.Center, cutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                     SoundEngine.PlaySound(BurrowSound with { Volume = 0.1f, Pitch = 0.6f, MaxInstances = 2 }, NPC.Center);
                 }
                 NPC.localAI[0]++;
@@ -142,7 +144,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 {
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
             }
             else
@@ -153,7 +156,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
 
@@ -292,7 +295,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 }
                 else if (NPC.ai[1] >= VineWall.Duration)
                 {
-                    vineWallCooldown = 830;
+                    vineWallCooldown = RuinedMoonActive ? 0 : 830;
                     NPC.ai[0] = None.Id;
                     NPC.ai[1] = 0;
                     NPC.ai[2] = VineWall.Id;
@@ -583,11 +586,14 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.active = true;
             if (deadTime == 0)
             {
+                modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 enemyHealthBar.ForceEnd(0);
                 SoundEngine.PlaySound(SoundID.DD2_OgreHurt with { Volume = 1f, Pitch = -0.5f }, NPC.Center);
                 NPC.HitSound = SoundID.Item1 with { Volume = 0f };
                 NPC.DeathSound = SoundID.Item1 with { Volume = 0f };
-                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f);
+                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 if (modNPC.isRoomNPC)
                 {
                     if (ActiveBossTheme != null)

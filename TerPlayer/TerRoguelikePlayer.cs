@@ -36,6 +36,11 @@ using Terraria.WorldBuilding;
 using TerRoguelike.Items.Common;
 using TerRoguelike.Items.Uncommon;
 using static Terraria.Player;
+using System.CodeDom;
+using Terraria.GameContent.Animations;
+using System.Linq.Expressions;
+using System.Drawing.Drawing2D;
+using TerRoguelike.ILEditing;
 
 namespace TerRoguelike.TerPlayer
 {
@@ -43,6 +48,8 @@ namespace TerRoguelike.TerPlayer
     {
         public static float BloodMoonIframeMultiplier = 0.75f;
         public static float NewMoonIframeMultiplier = 1.5f;
+        public static float SunnyDayIframeMultiplier = 2f;
+        public static float RuinedMoonIframeMultiplier = 0.5f;
         public static readonly SoundStyle JetLegCooldown = new SoundStyle("TerRoguelike/Sounds/JetLegUp");
         public static readonly SoundStyle WayfarerProc = new SoundStyle("TerRoguelike/Sounds/WayfarerProc");
         public static readonly SoundStyle PrimevalRattleProc = new SoundStyle("TerRoguelike/Sounds/PrimevalRattleProc", 3);
@@ -125,6 +132,9 @@ namespace TerRoguelike.TerPlayer
         public int everlastingJellyfish;
         public int heartyHoneycomb;
         public int primevalRattle;
+        public int theFalseSun;
+
+        public int trash;
 
         public List<int> evilEyeStacks = new List<int>();
         public List<int> thrillOfTheHuntStacks = new List<int>();
@@ -153,6 +163,15 @@ namespace TerRoguelike.TerPlayer
         public int wayfarersWaistclothDirTime = 0;
         public List<int> primevalRattleStacks = [];
         public bool primevalRattleBoost = false;
+        public Vector2[] theFalseSunLaserPosition = [-Vector2.One, -Vector2.One, -Vector2.One];
+        public Vector2[] theFalseSunLaserPositionOld = [-Vector2.One, -Vector2.One, -Vector2.One];
+        public int[] theFalseSunTime = [0, 0, 0];
+        public int[] theFalseSunTarget = [-1, -1, -1];
+        public int[] theFalseSunTargetExtra = [-1, -1, -1];
+        public int theFalseSunHitCooldown = 0;
+        public float theFalseSunIntensity = 0;
+        public float theFalseSunIntensityTarget = 0;
+
         #endregion
 
         #region Misc Variables
@@ -214,6 +233,13 @@ namespace TerRoguelike.TerPlayer
         public int creditsViewTime = 0;
         public bool isDeletableOnExit = false;
         public bool enableCampfire = false;
+        public int lunarGambit = 0;
+        public int darkSanctuaryTime = -90;
+        public int jstcTeleportTime = 0;
+        public Vector2 jstcTeleportStart = Vector2.Zero;
+        public Vector2 jstcTeleportEnd = Vector2.Zero;
+        public int sluggedTime = 0;
+        public bool sluggedAttempt = false;
         public Stopwatch playthroughTime = new Stopwatch();
         public float PlayerBaseDamageMultiplier { get { return Player.GetTotalDamage(DamageClass.Generic).ApplyTo(1f); } }
         #endregion
@@ -299,7 +325,13 @@ namespace TerRoguelike.TerPlayer
             everlastingJellyfish = 0;
             heartyHoneycomb = 0;
             primevalRattle = 0;
+            theFalseSun = 0;
 
+            trash = 0;
+
+            lunarGambit = 0;
+
+            sluggedAttempt = false;
             shotsToFire = 1;
             jumpSpeedMultiplier = 0f;
             extraDoubleJumps = 0;
@@ -356,7 +388,7 @@ namespace TerRoguelike.TerPlayer
             if (TerRoguelikeWorld.IsTerRoguelikeWorld)
             {
                 Player.noBuilding = !DebugUI.allowBuilding;
-                Player.noFallDmg = true;
+                Player.noFallDmg = !RuinedMoonActive;
                 Player.noKnockback = true;
                 Player.GetCritChance(DamageClass.Generic) -= 3f;
                 Player.runAcceleration *= 1.75f;
@@ -364,14 +396,45 @@ namespace TerRoguelike.TerPlayer
                 Player.accRunSpeed *= 1.15f;
                 Player.runSlowdown *= 1.75f;
                 Player.GetJumpState(ExtraJump.CloudInABottle).Enable();
-                Player.lifeRegen += 4;
+                Player.CancelAllBootRunVisualEffects();
+
+                if (!RuinedMoonActive)
+                    Player.lifeRegen += 4;
                 if (NewMoonActive)
                     Player.lifeRegen += 4;
+                else if (SunnyDayActive)
+                {
+                    Player.lifeRegen += 8;
+                    if (TerRoguelikeWorld.escape)
+                        Player.moveSpeed += 0.3f;
+                }
+                    
 
                 Player.lifeRegenTime = 0;
                 if (Player.controlDown)
                 {
                     Player.gravity *= 1.5f;
+                }
+
+                if (currentFloor != null && currentFloor.ID == SchematicManager.FloorDict["Sanctuary"] && Player.sitting.isSitting)
+                {
+                    bool allow = true;
+                    for (int i = 0; i < Player.buffType.Length; i++)
+                    {
+                        if (Player.buffType[i] == BuffID.Campfire)
+                        {
+                            allow = false;
+                            break;
+                        }
+                    }
+                    if (allow)
+                        darkSanctuaryTime++;
+                    else
+                        darkSanctuaryTime = -90;
+                }
+                else
+                {
+                    darkSanctuaryTime = -90;
                 }
             }
             outOfDangerTime++;
@@ -423,10 +486,14 @@ namespace TerRoguelike.TerPlayer
                 float healMultiIncrease = cornucopia * 0.5f;
                 healMultiplier += healMultiIncrease;
             }
+            if (RuinedMoonActive)
+            {
+                healMultiplier *= 0.5f;
+            }
             //max life effects happen before barrier calculations
             if (TerRoguelikeWorld.IsTerRoguelikeWorld)
             {
-                int maxLifeIncrease = TerRoguelikeWorld.currentStage * 20;
+                int maxLifeIncrease = TerRoguelikeWorld.currentStageForScaling * 20;
                 Player.statLifeMax2 += maxLifeIncrease;
             }
             if (bottleOfVigor > 0)
@@ -572,6 +639,10 @@ namespace TerRoguelike.TerPlayer
             if (NewMoonActive)
             {
                 diminishingDR += 30;
+            }
+            else if (SunnyDayActive)
+            {
+                diminishingDR += 36;
             }
 
             if (evilEye > 0)
@@ -1204,6 +1275,280 @@ namespace TerRoguelike.TerPlayer
                     primevalRattleStacks.Clear();
                 primevalRattleBoost = false;
             }
+
+            if (theFalseSun > 0)
+            {
+                Vector2 basePos = Player.Center + Vector2.UnitY * Player.gfxOffY;
+                Point lightpos = basePos.ToTileCoordinates();
+                if (jstcTeleportTime <= 0)
+                    Lighting.AddLight(lightpos.X, lightpos.Y, TorchID.Ichor, 1.2f * theFalseSunIntensity);
+
+                Player.GetCritChance(DamageClass.Generic) += 5f;
+                if (theFalseSunIntensity < theFalseSunIntensityTarget)
+                {
+                    theFalseSunIntensity = Math.Min(MathHelper.Lerp(theFalseSunIntensity, theFalseSunIntensityTarget, 0.1f) + 0.005f, theFalseSunIntensityTarget);
+                }
+                else if (theFalseSunIntensity > theFalseSunIntensityTarget)
+                {
+                    theFalseSunIntensity = Math.Max(MathHelper.Lerp(theFalseSunIntensity, theFalseSunIntensityTarget, 0.1f) - 0.005f, 0);
+                }
+                if (theFalseSunHitCooldown > 0)
+                    theFalseSunHitCooldown--;
+
+                float maxLaserLength = 400 * theFalseSunIntensity;
+
+                //targetting
+                for (int i = 0; i < theFalseSunTarget.Length; i++)
+                {
+                    ref int beamTime = ref theFalseSunTime[i];
+                    if (beamTime != 0)
+                    {
+                        if (beamTime < 20)
+                            beamTime++;
+                        if (beamTime < 0)
+                            continue;
+                    }
+
+                    ref int target = ref theFalseSunTarget[i];
+                    ref int targetExtra = ref theFalseSunTargetExtra[i];
+
+                    NPC npc;
+                    TerRoguelikeGlobalNPC modNPC;
+                    if (target != -1)
+                    {
+                        if (theFalseSunIntensity < 0.01f)
+                        {
+                            target = -1;
+                            targetExtra = -1;
+                            beamTime = -10;
+                            continue;
+                        }
+
+                        npc = Main.npc[target];
+                        if (npc.CanBeChasedBy())
+                        {
+                            modNPC = npc.ModNPC();
+                            Vector2 targetPos;
+
+                            if (targetExtra >= 0)
+                            {
+                                if (modNPC.Segments.Count > 0)
+                                {
+                                    targetPos = modNPC.Segments[targetExtra].Position;
+                                }
+                                else if (modNPC.ExtraIgniteTargetPoints.Count > 0)
+                                {
+                                    targetPos = modNPC.ExtraIgniteTargetPoints[targetExtra] + npc.Center;
+                                }
+                                else
+                                {
+                                    targetExtra = -1;
+                                    targetPos = npc.Center;
+                                }
+                            }
+                            else
+                            {
+                                targetPos = npc.Center;
+                            }
+
+                            if (Player.Center.Distance(targetPos) < maxLaserLength + 32 && CanHitInLine(Player.Center, targetPos))
+                                continue;
+                            
+                            target = -1;
+                            targetExtra = -1;
+                            beamTime = -10;
+                            continue;
+                        }
+                        else
+                        {
+                            target = -1;
+                            targetExtra = -1;
+                            beamTime = -10;
+                            continue;
+                        }
+                    }
+
+                    if (theFalseSunIntensity < 0.04f)
+                        continue;
+
+                    for (int n = 0; n < Main.maxNPCs; n++)
+                    {
+                        npc = Main.npc[n];
+
+                        if (!npc.CanBeChasedBy()) continue;
+
+                        bool allow = true;
+                        for (int i2 = 0; i2 < theFalseSunTarget.Length; i2++)
+                        {
+                            if (i2 == i)
+                                continue;
+                            if (n == theFalseSunTarget[i2])
+                            {
+                                allow = false;
+                                break;
+                            }
+                        }
+                        if (!allow)
+                            continue;
+
+                        modNPC = npc.ModNPC();
+
+                        bool segmentCheck = modNPC.Segments.Count > 0;
+                        if (segmentCheck || modNPC.ExtraIgniteTargetPoints.Count > 0)
+                        {
+                            List<Vector2> checkList = [];
+                            if (segmentCheck)
+                            {
+                                for (int s = 0; s < modNPC.Segments.Count; s++)
+                                {
+                                    checkList.Add(modNPC.Segments[s].Position);
+                                }
+                            }
+                            else
+                            {
+                                for (int s = 0; s < modNPC.ExtraIgniteTargetPoints.Count; s++)
+                                {
+                                    checkList.Add(modNPC.ExtraIgniteTargetPoints[s] + npc.Center);
+                                }
+                            }
+                                
+
+                            int closest = -1;
+                            float closestDistance = 0;
+                            for (int s = 0; s < checkList.Count; s++)
+                            {
+                                Vector2 checkPos = checkList[s];
+                                float distanceCheck = Player.Center.Distance(checkPos);
+                                if (distanceCheck > maxLaserLength)
+                                    continue;
+
+                                if (!CanHitInLine(Player.Center, checkPos))
+                                    continue;
+
+                                if (closest == -1)
+                                {
+                                    closest = s;
+                                    closestDistance = distanceCheck;
+                                }
+                                else if (distanceCheck < closestDistance)
+                                {
+                                    closestDistance = distanceCheck;
+                                    closest = s;
+                                }
+                            }
+
+                            if (closest != -1)
+                            {
+                                target = n;
+                                targetExtra = closest;
+                                beamTime = 1;
+                            }
+                        }
+                        else
+                        {
+                            if (Player.Center.Distance(npc.Center) > maxLaserLength)
+                                continue;
+                            if (!CanHitInLine(Player.Center, npc.Center))
+                                continue;
+
+                            target = n;
+                            targetExtra = -1;
+                            beamTime = 1;
+                        }
+                    }
+                }
+
+                //update position, attack, and spawn particles
+                bool canHit = theFalseSunHitCooldown == 0;
+                for (int i = 0; i < theFalseSunLaserPosition.Length; i++)
+                {
+                    ref Vector2 laserPos = ref theFalseSunLaserPosition[i];
+                    theFalseSunLaserPositionOld[i] = laserPos;
+
+                    int beamTime = theFalseSunTime[i];
+                    if (beamTime > 0)
+                    {
+                        int target = theFalseSunTarget[i];
+                        if (target >= 0)
+                        {
+                            int extraTarget = theFalseSunTargetExtra[i];
+                            if (extraTarget >= 0)
+                            {
+                                var modTarget = Main.npc[target].ModNPC();
+                                laserPos = modTarget.Segments.Count > 0 ? modTarget.Segments[extraTarget].Position : modTarget.ExtraIgniteTargetPoints[extraTarget] + Main.npc[target].Center;
+                            }
+                            else
+                            {
+                                laserPos = Main.npc[target].Center;
+                            }
+                            if (beamTime == 1)
+                                theFalseSunLaserPositionOld[i] = laserPos;
+                            if (laserPos.Distance(theFalseSunLaserPositionOld[i]) <= 80)
+                            {
+                                if (canHit)
+                                {
+                                    theFalseSunHitCooldown = 8;
+                                    int falseSunDamage = Math.Max((int)(75 * theFalseSunIntensity * theFalseSun), 1);
+
+                                    Projectile.NewProjectile(Player.GetSource_FromThis(), laserPos, Vector2.Zero, ModContent.ProjectileType<FalseSunBeam>(), falseSunDamage, 0.5f, Player.whoAmI, target, Main.npc[target].type);
+                                }
+                            }
+                            else
+                            {
+                                laserPos = theFalseSunLaserPositionOld[i];
+                                theFalseSunTarget[i] = target = -1;
+                                theFalseSunTargetExtra[i] = extraTarget = -1;
+                                theFalseSunTime[i] = beamTime = -10;
+                            }
+                        }
+                    }
+
+                    if (beamTime != 0)
+                    {
+                        float scaleModifier = 1;
+                        if (beamTime < 0)
+                        {
+                            scaleModifier = -beamTime / 10f;
+                        }
+                        else if (beamTime < 10)
+                        {
+                            scaleModifier = beamTime / 10f;
+                        }
+                        for (int b = -1; b <= 1; b += 2)
+                        {
+                            ParticleManager.AddParticle(new BallOutlined(
+                                laserPos, Vector2.UnitX.RotatedBy((laserPos - (Player.Center + Player.gfxOffY * Vector2.UnitY)).ToRotation() + (MathHelper.PiOver2 + Main.rand.NextFloat(0.1f, 0.6f)) * b) * Main.rand.NextFloat(4f, 8f) * scaleModifier * MathHelper.Lerp(0.4f, 1f, theFalseSunIntensity),
+                                30, Color.White, Color.Lerp(Color.Yellow, Color.Orange, Main.rand.NextFloat()), 
+                                new Vector2(Main.rand.NextFloat(0.15f, 0.3f) * theFalseSunIntensity) * scaleModifier, 4, 0, 0.96f, 30));
+                        }
+                    }
+                }
+
+                if (theFalseSunIntensityTarget > 0 && theFalseSunIntensity >= theFalseSunIntensityTarget)
+                {
+                    theFalseSunIntensityTarget -= 0.0007f;
+                    if (theFalseSunIntensityTarget < 0)
+                        theFalseSunIntensityTarget = 0;
+                }
+            }
+            else
+            {
+                theFalseSunIntensity = 0;
+                theFalseSunIntensityTarget = 0;
+                for (int i = 0; i < theFalseSunTarget.Length; i++)
+                {
+                    theFalseSunTarget[i] = -1;
+                    theFalseSunTargetExtra[i] = -1;
+                    theFalseSunTime[i] = 0;
+                }
+            }
+
+            if (ILEdits.dualContrastTileShader)
+            {
+                Point lightpos = Player.Center.ToTileCoordinates();
+                if (jstcTeleportTime <= 0)
+                    Lighting.AddLight(lightpos.X, lightpos.Y, TorchID.Ichor, 1f);
+            }
         }
         public override void PostUpdateEquips()
         {
@@ -1244,9 +1589,9 @@ namespace TerRoguelike.TerPlayer
                 Player.GetAttackSpeed(DamageClass.Generic) *= finalAttackSpeedMultiplier;
                 Player.GetDamage(DamageClass.Generic) *= finalDamageMultiplier;
             }
-            if (cornucopia > 0)
+            if (cornucopia > 0 || RuinedMoonActive)
             {
-                Player.lifeRegen = (int)((1f + healMultiplier) * Player.lifeRegen);
+                Player.lifeRegen = (int)(healMultiplier * Player.lifeRegen);
             }
 
             if (!Player.GetJumpState(ExtraJump.CloudInABottle).Available && timesDoubleJumped < extraDoubleJumps)
@@ -1258,6 +1603,13 @@ namespace TerRoguelike.TerPlayer
             {
                 Player.moveSpeed *= 1.30f;
                 Player.maxRunSpeed *= 1.30f;
+            }
+            if (sluggedTime > 0)
+            {
+                sluggedTime--;
+                Player.moveSpeed *= 0.7f;
+                Player.accRunSpeed *= 0.7f;
+                Player.maxRunSpeed *= 0.7f;
             }
 
             Player.jumpSpeedBoost += 5f * jumpSpeedMultiplier;
@@ -1368,6 +1720,10 @@ namespace TerRoguelike.TerPlayer
                 Player.gravControl = false;
                 Player.gravControl2 = false;
             }
+            if (jstcTeleportTime > 0)
+            {
+                Player.tongued = true;
+            }
 
             if (Player.pulley && TerRoguelikeWorld.IsTerRoguelikeWorld)
             {
@@ -1430,6 +1786,12 @@ namespace TerRoguelike.TerPlayer
             }
 
             oldPulley = Player.pulley;
+
+            if (RoomSystem.loopingDrama > 0)
+            {
+                Player.velocity = new Vector2(0, -0.0000000001f);
+                Player.Center = Vector2.Lerp(Player.Center, TerRoguelikeWorld.lunarGambitSceneDisplayPos, 0.05f);
+            }
         }
         public override void PreUpdateBuffs()
         {
@@ -1565,7 +1927,7 @@ namespace TerRoguelike.TerPlayer
                     if (hit.Crit)
                         internalHitDamage /= 2;
                     int igniteDamage = (int)(internalHitDamage * 1.5f / target.ModNPC().effectiveDamageTakenMulti);
-                    int burnCap = Math.Min(igniteDamage / 6, 50);
+                    int burnCap = Math.Max(Math.Min(igniteDamage / 6, 50), 1);
                     modNPC.ignitedStacks.Add(new IgnitedStack(igniteDamage, Player.whoAmI, burnCap));
                     Vector2 targetPos = modNPC.Segments.Count > 0 ? modNPC.Segments[modNPC.hitSegment].Position : target.Center;
                     int particleDir = -1;
@@ -1573,7 +1935,8 @@ namespace TerRoguelike.TerPlayer
                     {
                         particleDir = targetPos.X > Main.player[proj.owner].Center.X ? 1 : -1;
                     }
-                    for (int i = -5; i <= 5; i++)
+                    int particleCount = (int)(5f / (TerRoguelikeWorld.currentLoop * 2 + 1));
+                    for (int i = -particleCount; i <= particleCount; i++)
                     {
                         float scale = 1f;
                         if (i % 5 != 0)
@@ -1658,6 +2021,17 @@ namespace TerRoguelike.TerPlayer
             if (ancientTwig > 0)
             {
                 ancientTwigLastStruckTimer = 300;
+            }
+
+            if (theFalseSun > 0)
+            {
+                if (hit.Crit && theFalseSunIntensityTarget < 1 && proj.type != ModContent.ProjectileType<FalseSunBeam>())
+                {
+                    theFalseSunIntensityTarget += 0.075f;
+                    if (theFalseSunIntensityTarget > 1)
+                        theFalseSunIntensityTarget = 1;
+                }
+                    
             }
 
             if (proj.type == ModContent.ProjectileType<ThrownBackupDagger>())
@@ -1847,6 +2221,14 @@ namespace TerRoguelike.TerPlayer
                     {
                         addImmuneTime = (int)(addImmuneTime * NewMoonIframeMultiplier);
                     }
+                    else if (SunnyDayActive)
+                    {
+                        addImmuneTime = (int)(addImmuneTime * SunnyDayIframeMultiplier);
+                    }
+                    else if (RuinedMoonActive)
+                    {
+                        addImmuneTime = (int)(addImmuneTime * RuinedMoonIframeMultiplier);
+                    }
                     for (int i = -1; i < 5; i++)
                     {
                         Player.AddImmuneTime(i, addImmuneTime);
@@ -1928,6 +2310,14 @@ namespace TerRoguelike.TerPlayer
             {
                 addImmuneTime = (int)(addImmuneTime * NewMoonIframeMultiplier);
             }
+            else if (SunnyDayActive)
+            {
+                addImmuneTime = (int)(addImmuneTime * SunnyDayIframeMultiplier);
+            }
+            else if (RuinedMoonActive)
+            {
+                addImmuneTime = (int)(addImmuneTime * RuinedMoonIframeMultiplier);
+            }
             for (int i = -1; i < 5; i++)
             {
                 Player.AddImmuneTime(i, addImmuneTime);
@@ -1938,6 +2328,12 @@ namespace TerRoguelike.TerPlayer
         }
         public void HurtEffects(int damage)
         {
+            if (sluggedAttempt)
+            {
+                sluggedAttempt = false;
+                sluggedTime = 150;
+            }
+
             if (protectiveBubble > 0 && outOfDangerTime >= 420)
             {
                 SoundEngine.PlaySound(SoundID.Item87 with { Volume = 1f }, Player.Center);
@@ -1983,7 +2379,7 @@ namespace TerRoguelike.TerPlayer
         }
         public override void PostHurt(Player.HurtInfo info)
         {
-            if (BloodMoonActive)
+            if (BloodMoonActive || RuinedMoonActive)
             {
                 Player.immuneTime = (int)(Player.immuneTime * BloodMoonIframeMultiplier);
                 for (int i = 0; i < Player.hurtCooldowns.Length; i++)
@@ -1991,12 +2387,20 @@ namespace TerRoguelike.TerPlayer
                     Player.hurtCooldowns[i] = (int)(Player.hurtCooldowns[i] * BloodMoonIframeMultiplier);
                 }
             }
-            if (NewMoonActive)
+            else if (NewMoonActive)
             {
                 Player.immuneTime = (int)(Player.immuneTime * NewMoonIframeMultiplier);
                 for (int i = 0; i < Player.hurtCooldowns.Length; i++)
                 {
                     Player.hurtCooldowns[i] = (int)(Player.hurtCooldowns[i] * NewMoonIframeMultiplier);
+                }
+            }
+            else if (SunnyDayActive)
+            {
+                Player.immuneTime = (int)(Player.immuneTime * SunnyDayIframeMultiplier);
+                for (int i = 0; i < Player.hurtCooldowns.Length; i++)
+                {
+                    Player.hurtCooldowns[i] = (int)(Player.hurtCooldowns[i] * SunnyDayIframeMultiplier);
                 }
             }
             if (info.Damage == 1 && barrierInHurt > 0)
@@ -2020,6 +2424,10 @@ namespace TerRoguelike.TerPlayer
                     soulOfLenaUses++;
                     soulOfLenaHurtVisual = true;
                     SoundEngine.PlaySound(SoundID.NPCHit36 with { Volume = 0.4f }, Player.Center);
+                }
+                if (Player.immuneTime > 0 && soulOfLenaHurtVisual && jstcTeleportTime <= 0)
+                {
+                    Lighting.AddLight(Player.Center, 0f, 0.24f, 0.36f);
                 }
             }
         }
@@ -2093,7 +2501,7 @@ namespace TerRoguelike.TerPlayer
         #region Mechanical Functions
         public void ScaleableHeal(int healAmt)
         {
-            healAmt = (int)(healAmt * healMultiplier);
+            healAmt = Math.Max((int)(healAmt * healMultiplier), 1);
             if (barrierSynthesizer > 0)
             {
                 if (Player.statLife + healAmt > Player.statLifeMax2)
@@ -2110,6 +2518,10 @@ namespace TerRoguelike.TerPlayer
         }
         public void AddBarrierHealth(int barrierGainAmt)
         {
+            if (RuinedMoonActive)
+            {
+                barrierGainAmt = Math.Max((int)(barrierGainAmt * 0.5f), 1);
+            }
             barrierHealth += barrierGainAmt;
             if (barrierHealth > Player.statLifeMax2)
                 barrierHealth = Player.statLifeMax2;
@@ -2263,7 +2675,16 @@ namespace TerRoguelike.TerPlayer
                         WorldGen.SectionTileFrameWithCheck(frameRect.X, frameRect.Y, frameRect.Width, frameRect.Height);
                     }
                 }
+                if (TerRoguelikeWorld.currentLoop > 0)
+                {
+                    TerRoguelikeWorld.worldTeleportTime = 1;
+                    SoundEngine.PlaySound(TerRoguelikeWorld.WorldTeleport with { Volume = 0.2f, Variants = [2] });
+                }
             }
+            soulOfLenaUses = 0;
+            lenaVisualPosition = Vector2.Zero;
+            droneBuddyVisualPosition = Vector2.Zero;
+            escapeArrowTime = 0;
             escaped = false;
             DeathUI.itemsToDraw.Clear();
             CreditsUI.itemsToDraw.Clear();
@@ -2271,9 +2692,16 @@ namespace TerRoguelike.TerPlayer
             creditsViewTime = 0;
             escapeFail = false;
             barrierHealth = 0;
-            playthroughTime.Restart();
+            swingAnimCompletion = 0;
+            if (!TerRoguelikeWorld.promoteLoop && TerRoguelikeWorld.currentLoop == 0)
+            {
+                playthroughTime.Restart();
+                SpawnManager.EliteCredits = 0;
+            }
             currentFloor = null;
-
+            jstcTeleportTime = 0;
+            jstcTeleportStart = Vector2.Zero;
+            jstcTeleportEnd = Vector2.Zero;
         }
         #endregion
 
@@ -2305,7 +2733,7 @@ namespace TerRoguelike.TerPlayer
         #region Draw Effects
         public override void ModifyDrawInfo(ref PlayerDrawSet drawInfo)
         {
-            if (deathEffectTimer > 0) // FUCK ALL OF IT
+            if (deathEffectTimer > 0 || jstcTeleportTime > 0) // FUCK ALL OF IT
             {
                 drawInfo.hideEntirePlayer = true;
                 drawInfo.colorArmorBody = Color.Transparent;
@@ -2332,14 +2760,189 @@ namespace TerRoguelike.TerPlayer
         }
         public override void DrawEffects(PlayerDrawSet drawInfo, ref float r, ref float g, ref float b, ref float a, ref bool fullBright)
         {
-            if (deathEffectTimer > 0 || Player.dead)
+            if (deathEffectTimer > 0 || Player.dead || jstcTeleportTime > 0)
             {
                 r = 0f;
                 g = 0f;
                 b = 0f;
                 a = 0f;
                 fullBright = false;
+                drawInfo.itemColor = Color.Transparent;
                 return;
+            }
+
+            if (theFalseSun > 0)
+            {
+                float intensity = theFalseSunIntensity;
+
+                Vector2 basePos = Player.Center + Vector2.UnitY * Player.gfxOffY;
+
+                #region Glow Drawing
+
+                Main.spriteBatch.End();
+                Effect coneEffect = Filters.Scene["TerRoguelike:ConeSnippet"].GetShader().Shader;
+                Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, coneEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                int rayCount = 400;
+
+                coneEffect.Parameters["tint"].SetValue((Color.Lerp(Color.Orange, Color.Yellow, 0.3f) * 0.75f).ToVector4());
+                coneEffect.Parameters["minDOT"].SetValue(Vector2.Dot(Vector2.UnitX, Vector2.UnitX.RotatedBy(1f / rayCount * MathHelper.Pi)));
+
+                
+                float maxRayLength = 360 * intensity;
+                List<float> rayLengths = [];
+                for (int i = 0; i < rayCount; i++)
+                {
+                    float completion = (float)i / rayCount;
+                    float thisRot = completion * MathHelper.TwoPi;
+                    rayLengths.Add(FalseSunLightCollisionCheck(basePos, thisRot, maxRayLength, 3));
+                }
+                var glowTex = TexDict["CircularGlow"];
+
+                for (int i = 0; i < rayLengths.Count; i++)
+                {
+                    float completion = (float)i / rayCount;
+                    float thisRot = completion * MathHelper.TwoPi;
+                    float length = rayLengths[i];
+
+                    float scaling = length / maxRayLength;
+                    Rectangle thisRect = new(0, 0, (int)(glowTex.Width * 0.30f * scaling + (glowTex.Width * 0.5f)), glowTex.Height);
+                    thisRect.X = glowTex.Width - thisRect.Width;
+                    thisRect.Width = glowTex.Width - (thisRect.X * 2);
+
+                    Main.EntitySpriteDraw(glowTex, basePos - Main.screenPosition, thisRect, Color.White, thisRot, thisRect.Size() * 0.5f, new Vector2(0.812f * 1.5f * intensity), SpriteEffects.None);
+                }
+                #endregion
+
+                #region Laser Drawing
+                Effect maskEffect = Filters.Scene["TerRoguelike:MaskOverlay"].GetShader().Shader;
+
+                var ballTex = TexDict["Circle"];
+                var ballGlowTex = TexDict["LenaGlow"];
+                var laserTex = TexDict["Square"];
+                var laserNoiseTex = TexDict["Streaks"];
+                float time = Main.GlobalTimeWrappedHourly;
+                var lineGlowTex = TexDict["LineGradient"];
+
+                for (int p = 0; p < theFalseSunLaserPosition.Length; p++)
+                {
+                    time += 0.26f;
+
+                    int beamTime = theFalseSunTime[p];
+                    if (beamTime == 0)
+                        continue;
+
+                    float heightMultiplier = 1f;
+                    if (beamTime < 0)
+                    {
+                        heightMultiplier = -beamTime / 10f;
+                        heightMultiplier = (float)Math.Pow(heightMultiplier, 3);
+                    }
+                    else if (beamTime < 17)
+                    {
+                        heightMultiplier = beamTime / 17f;
+                    }
+                    
+
+                    float whiteLerp = 0;
+                    if (true)
+                    {
+                        if (beamTime < 0)
+                            whiteLerp = 1 - (-beamTime / 10f);
+                        else if (beamTime < 20)
+                            whiteLerp = 1 - (beamTime / 20f);
+                    }
+                    
+                    Main.spriteBatch.End();
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+                    
+                    Vector2 laserTarget = theFalseSunLaserPosition[p];
+                    Vector2 laserStart = basePos + (laserTarget - basePos).SafeNormalize(Vector2.UnitY) * 40 * intensity;
+                    float laserRot = (laserTarget - laserStart).ToRotation();
+                    float laserLength = laserStart.Distance(laserTarget);
+                    float lengthRatio = laserLength / 240f;
+                    if (lengthRatio == 0)
+                        lengthRatio += 0.00001f;
+
+                    Main.EntitySpriteDraw(laserTex, laserStart - Main.screenPosition, null, Color.Lerp(Color.Lerp(Color.Orange, Color.Black, 0.6f), Color.White, whiteLerp) * 0.8f, laserRot, new Vector2(0, laserTex.Height * 0.5f), new Vector2(laserLength * 0.25f, 4 * intensity * heightMultiplier), SpriteEffects.None);
+
+                    Main.spriteBatch.End();
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, maskEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                    maskEffect.Parameters["screenOffset"].SetValue(new Vector2(-2 * time / lengthRatio, time * 4f));
+                    maskEffect.Parameters["stretch"].SetValue(new Vector2(1 * lengthRatio, 0.25f));
+                    maskEffect.Parameters["replacementTexture"].SetValue(laserNoiseTex);
+                    maskEffect.Parameters["tint"].SetValue(Color.Lerp(Color.Yellow, Color.White, whiteLerp).ToVector4());
+
+                    Main.EntitySpriteDraw(laserTex, laserStart - Main.screenPosition, null, Color.White, laserRot, new Vector2(0, laserTex.Height * 0.5f), new Vector2(laserLength * 0.25f, 4 * intensity * heightMultiplier), SpriteEffects.None);
+
+                    Main.spriteBatch.End();
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+
+                    
+
+                    for (int i = -1; i <= 1; i += 2)
+                    {
+                        Main.EntitySpriteDraw(lineGlowTex, laserStart - Main.screenPosition + Vector2.UnitY.RotatedBy(laserRot) * i * 10 * intensity * heightMultiplier, null, Color.Lerp(Color.Lerp(Color.Yellow, Color.OrangeRed, (float)Math.Cos(time * 9) * 0.2f + 0.55f), Color.White, whiteLerp), laserRot, new Vector2(0, lineGlowTex.Height * 0.5f), new Vector2(laserLength * 0.5f, 1 * intensity * heightMultiplier), SpriteEffects.None);
+                    }
+
+                    Main.spriteBatch.End();
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+
+                    Main.EntitySpriteDraw(ballGlowTex, laserTarget - Main.screenPosition, null, Color.LightGoldenrodYellow, laserRot, ballGlowTex.Size() * 0.5f, new Vector2(0.3f, 0.57f) * intensity * heightMultiplier, SpriteEffects.None);
+                    Main.EntitySpriteDraw(glowTex, laserTarget - Main.screenPosition, null, Color.Yellow * 0.85f, laserRot, glowTex.Size() * 0.5f, new Vector2(0.4f, 0.67f) * 0.2f * intensity * heightMultiplier, SpriteEffects.None);
+                }
+                
+
+                #endregion
+
+                #region Ball Drawing
+                Main.spriteBatch.End();
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+                
+                Main.EntitySpriteDraw(ballGlowTex, basePos - Main.screenPosition, null, Color.Lerp(Color.Orange, Color.LightYellow, 0.3f) * 0.7f, Main.rand.NextFloat(MathHelper.TwoPi), ballGlowTex.Size() * 0.5f, 2f * intensity * new Vector2(Main.rand.NextFloat(0.97f, 1.03f), Main.rand.NextFloat(0.92f, 1.06f)), SpriteEffects.None);
+                Main.EntitySpriteDraw(ballGlowTex, basePos - Main.screenPosition, null, Color.Lerp(Color.Orange, Color.LightYellow, 0.3f) * 0.7f, Main.rand.NextFloat(MathHelper.TwoPi), ballGlowTex.Size() * 0.5f, 2f * intensity * new Vector2(Main.rand.NextFloat(0.97f, 1.03f), Main.rand.NextFloat(0.92f, 1.06f)), SpriteEffects.None);
+
+
+                Main.spriteBatch.End();
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, maskEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                float opacity = 1f;
+                
+                Vector2 screenOff = new Vector2(time * 0.5f, time);
+                Color tint = Color.DarkRed;
+                tint *= opacity;
+                
+                var noiseTex = TexDict["BlobbyNoiseSmall"];
+
+                maskEffect.Parameters["screenOffset"].SetValue(screenOff);
+                maskEffect.Parameters["stretch"].SetValue(new Vector2(0.75f) / 2.5f);
+                maskEffect.Parameters["replacementTexture"].SetValue(noiseTex);
+                maskEffect.Parameters["tint"].SetValue(tint.ToVector4());
+                float ballScale = 0.24f;
+                float ballRot = time * 1.3f;
+
+                Main.EntitySpriteDraw(ballTex, basePos - Main.screenPosition, null, Color.White, ballRot, ballTex.Size() * 0.5f, intensity * ballScale, SpriteEffects.None);
+
+                Main.spriteBatch.End();
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, maskEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                maskEffect.Parameters["screenOffset"].SetValue(screenOff);
+                maskEffect.Parameters["stretch"].SetValue(new Vector2(0.35f));
+                maskEffect.Parameters["replacementTexture"].SetValue(noiseTex);
+                maskEffect.Parameters["tint"].SetValue((Color.Lerp(Color.Orange, Color.Yellow, 0.9f)).ToVector4());
+                Main.EntitySpriteDraw(ballTex, basePos - Main.screenPosition, null, Color.White * opacity, ballRot + 0.5f, ballTex.Size() * 0.5f, intensity * ballScale, SpriteEffects.None);
+
+
+                Main.spriteBatch.End();
+                Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+
+                var invGlowTex = TexDict["InverseGlow"];
+                Main.EntitySpriteDraw(invGlowTex, basePos - Main.screenPosition, null, Color.White * 0.95f, Main.rand.NextFloat(MathHelper.TwoPi), invGlowTex.Size() * 0.5f, 0.078f * intensity * new Vector2(Main.rand.NextFloat(1f, 1.04f), Main.rand.NextFloat(1f, 1.04f)), SpriteEffects.None);
+
+                Main.spriteBatch.End();
+                Main.spriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+                #endregion
             }
 
             float closestNPCDistance = -1f;
@@ -2516,6 +3119,14 @@ namespace TerRoguelike.TerPlayer
                 }   
             }
 
+            if (sluggedTime > 0)
+            {
+                Color color = Color.Lerp(new Color(r, g, b), Color.Purple, 0.6f);
+                r = color.R / 255f;
+                g = color.G / 255f;
+                b = color.B / 255f;
+            }
+
             if (soulOfLena > 0)
             {
                 bool hurtCheck = Player.immuneTime > 0 && soulOfLenaHurtVisual;
@@ -2529,7 +3140,6 @@ namespace TerRoguelike.TerPlayer
                     {
                         soulOfLenaHurtVisual = false;
                     }
-                    Lighting.AddLight(Player.Center, 0f, 0.24f, 0.36f);
                 }
                 if (soulOfLenaUses < soulOfLena || soulOfLenaHurtVisual)
                 {
@@ -2891,7 +3501,7 @@ namespace TerRoguelike.TerPlayer
             {
                 Player drawPlayer = drawInfo.drawPlayer;
                 TerRoguelikePlayer modPlayer = drawPlayer.GetModPlayer<TerRoguelikePlayer>();
-                if (drawInfo.shadow != 0f || drawPlayer.dead || (drawPlayer.immuneAlpha > 120) || modPlayer.deathEffectTimer > 0)
+                if (drawInfo.shadow != 0f || drawPlayer.dead || (drawPlayer.immuneAlpha > 120) || modPlayer.deathEffectTimer > 0 || modPlayer.jstcTeleportTime > 0)
                     return false;
 
                 return drawInfo.drawPlayer.GetModPlayer<TerRoguelikePlayer>().barrierHealth > 1f;
@@ -3041,7 +3651,14 @@ namespace TerRoguelike.TerPlayer
         #region Death Effect
         public void DoDeathEffect()
         {
-            Texture2D ghostTex = TextureAssets.Npc[NPCID.Ghost].Value;
+
+            var wantedTex = TextureAssets.Npc[NPCID.Ghost];
+            if (wantedTex.State == AssetState.NotLoaded)
+            {
+                Main.Assets.Request<Texture2D>(TextureAssets.Npc[NPCID.Ghost].Name, AssetRequestMode.ImmediateLoad);
+            }
+            var ghostTex = wantedTex.Value;
+
             int frameCount = Main.npcFrameCount[NPCID.Ghost];
             int frameHeight = ghostTex.Height / frameCount;
             int frame = (int)((Main.GlobalTimeWrappedHourly / 0.15f) % frameCount);
@@ -3092,6 +3709,30 @@ namespace TerRoguelike.TerPlayer
             DeathUI.itemsToDraw.Clear();
             deadTime = 0;
             creditsViewTime = 0;
+            swingAnimCompletion = 0;
+        }
+        #endregion
+
+        #region Slugged Effect
+        public class SluggedDrawLayer : PlayerDrawLayer
+        {
+            public override Position GetDefaultPosition() => PlayerDrawLayers.AfterLastVanillaLayer;
+
+            public override bool GetDefaultVisibility(PlayerDrawSet drawInfo)
+            {
+                Player drawPlayer = drawInfo.drawPlayer;
+                TerRoguelikePlayer modPlayer = drawPlayer.GetModPlayer<TerRoguelikePlayer>();
+                if (drawInfo.shadow != 0f || drawPlayer.dead || (drawPlayer.immuneAlpha > 120) || modPlayer.deathEffectTimer > 0 || modPlayer.jstcTeleportTime > 0)
+                    return false;
+
+                return modPlayer.sluggedTime > 0;
+            }
+
+            protected override void Draw(ref PlayerDrawSet drawInfo)
+            {
+                if (drawInfo.shadow != 0)
+                    return;
+            }
         }
         #endregion
 

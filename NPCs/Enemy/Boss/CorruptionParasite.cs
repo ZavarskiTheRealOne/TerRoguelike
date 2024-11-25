@@ -25,6 +25,7 @@ using static TerRoguelike.Systems.RoomSystem;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
 using static TerRoguelike.Systems.EnemyHealthBarSystem;
 using static TerRoguelike.MainMenu.TerRoguelikeMenu;
+using TerRoguelike.World;
 
 namespace TerRoguelike.NPCs.Enemy.Boss
 {
@@ -99,6 +100,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 38;
             NPC.height = 38;
             NPC.aiStyle = -1;
@@ -120,8 +122,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public override void OnSpawn(IEntitySource source)
         {
-            NPC.immortal = true;
-            NPC.dontTakeDamage = true;
+            NPC.immortal = NPC.dontTakeDamage = !TerRoguelikeWorld.escape;
             currentFrame = 0;
             NPC.localAI[0] = -(cutsceneDuration + 30);
             NPC.direction = -1;
@@ -194,13 +195,13 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
             if (NPC.localAI[0] < 0)
             {
-                bool hardMode = difficulty == Difficulty.BloodMoon;
+                bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
                 target = modNPC.GetTarget(NPC);
 
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(spawnPos, cutsceneDuration, 30, 30, 2.5f);
+                    CutsceneSystem.SetCutscene(spawnPos, cutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 }
                 NPC.localAI[0]++;
 
@@ -226,7 +227,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         NPC.ai[1] = -60;
                     NPC.ai[3] = 0;
                     NPC.ai[2] = Summon.Id;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
                 if (NPC.localAI[0] < -30)
                 {
@@ -242,7 +244,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
 
@@ -638,7 +640,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             }
             else if (NPC.ai[0] == Summon.Id)
             {
-                int summonTime = Summon.Duration / summonCount;
+                int count = RuinedMoonActive ? summonCount * 2 : summonCount;
+                int summonTime = Summon.Duration / count;
                 if ((int)NPC.ai[1] % summonTime >= summonTime - 15)
                 {
                     WormSegment tailSegment = modNPC.Segments[modNPC.Segments.Count - 1];
@@ -846,11 +849,12 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.dontTakeDamage = true;
             NPC.active = true;
 
-
             if (deadTime == 0)
             {
                 enemyHealthBar.ForceEnd(0);
                 modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 if (modNPC.isRoomNPC)
                 {
                     if (ActiveBossTheme != null)
@@ -886,7 +890,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         NPC.velocity = (room.RoomCenter16 + room.RoomPosition16 - NPC.Center).SafeNormalize(Vector2.UnitY) * speed;
                     }
                 }
-                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f);
+                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
             }
             deadTime++;
 
@@ -957,7 +961,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             SoundEngine.PlaySound(SoundID.NPCHit1, segment.Position);
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 25.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 2000.0; i++)
                 {
                     Dust.NewDust(segment.Position + new Vector2(-segment.Height * 0.5f), (int)segment.Height, (int)segment.Height, 5, hit.HitDirection, -1f);
                 }
@@ -1050,7 +1054,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
             if (NPC.ai[0] == Summon.Id)
             {
-                int summonTime = Summon.Duration / summonCount;
+                int count = RuinedMoonActive ? summonCount * 2: summonCount;
+                int summonTime = Summon.Duration / count;
                 if ((int)NPC.ai[1] % summonTime < summonTime - 1)
                 {
                     WormSegment segment = modNPC.Segments[modNPC.Segments.Count - 1];

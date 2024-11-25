@@ -24,6 +24,8 @@ using TerRoguelike.Systems;
 using Terraria.GameInput;
 using static TerRoguelike.Managers.TextureManager;
 using TerRoguelike.Utilities;
+using Terraria.Audio;
+using TerRoguelike.Schematics;
 
 namespace TerRoguelike.UI
 {
@@ -113,6 +115,18 @@ namespace TerRoguelike.UI
                     {
                         Room room = RoomSystem.RoomList[i];
                         RoomSystem.ResetRoomID(room.ID);
+                    }
+                    TerRoguelikeWorld.lunarGambitSceneTime = 0;
+                    TerRoguelikeWorld.lunarGambitSceneStartPos = Vector2.Zero;
+
+                    foreach (var floor in SchematicManager.FloorID)
+                    {
+                        floor.Reset();
+                    }
+
+                    if (SoundEngine.TryGetActiveSound(TerRoguelikeWorld.PortalSlot, out var portalSound))
+                    {
+                        portalSound.Stop();
                     }
                 }
             }

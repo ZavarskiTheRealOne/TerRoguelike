@@ -3,6 +3,7 @@ DeathKilledBy: Killed by:
 DeathItems: Items:
 DeathMainMenu: Main Menu
 DeathQuickRestart: Quick Restart
+DeathLoop: Loop:
 BlockedAlert: blocked!
 HealthUpAlert: Health Up!
 BarrierName: Barrier
@@ -30,6 +31,16 @@ FullMoonDescription: The intended TerRoguelike experience
 BloodMoonName: Blood Moon
 BloodMoonDescription1: Turn things up a notch
 BloodMoonDescription2: Decreased hurt immune time, bosses attack more often
+SunnyDayName: Sunny Day
+SunnyDayDescription1: For when it's really needed
+SunnyDayDescription2: Greater New Moon effects, reduced boss health, more movement speed when the time is right
+RuinedMoonName: Ruined Moon
+RuinedMoonDescription1: Where fun goes to die
+RuinedMoonDescription2: Do not play this, seriously
+EliteTainted: "Tainted "
+EliteSlugged: "Slugged "
+EliteBurdened: "Burdened "
+TrashDescription: On Tuesdays from 10PM to 11PM, +1 bounce for main projectiles
 
 Projectiles: {
 	ClingyGrenade.DisplayName: Clingy Grenade
@@ -139,6 +150,8 @@ Projectiles: {
 	AdaptiveDaggerHoldout.DisplayName: Adaptive Dagger Holdout
 	AdaptiveDaggerStab.DisplayName: Adaptive Dagger Stab
 	AdaptiveRifleHoldout.DisplayName: Adaptive Rifle Holdout
+	FalseSunBeam.DisplayName: False Sun Beam
+	ResidualBurden.DisplayName: Residual Burden
 }
 
 Items: {
@@ -952,6 +965,30 @@ Items: {
 			Gains auto-fire capabilities at 2x attack speed or more
 			'''
 	}
+
+	LunarGambit: {
+		DisplayName: Lunar Gambit
+		Tooltip:
+			'''
+			A secret trinket, hidden hastily inside the already veiled Lunar Sanctuary, by a face long lost to time
+			Grants the opportunity to loop back to the beginning of the dungeon after defeating the Moon Lord
+			Looping allows you to fight through the dungeon again, finding more items, while keeping all of your old items
+			However, enemies continue to get stronger every floor as well
+			'''
+	}
+
+	TheFalseSun: {
+		DisplayName: The False Sun
+		Tooltip:
+			'''
+			5% increased critical strike chance
+			Critically striking an enemy builds up decaying sun energy
+			Sun damage and range scales with the amount of sun energy
+			The false sun can rapidly hit 3 nearby enemies for up to 75 base damage
+			Critical strikes from the false sun itself do not build up decaying sun energy
+			Extra copies of this item increase the base damage by 75
+			'''
+	}
 }
 
 NPCs: {
@@ -1051,6 +1088,7 @@ NPCs: {
 	MoonLordHead.DisplayName: Moon Lord's Eye
 	TrueServant.DisplayName: True Servant of Cthulhu
 	TrueBrain.DisplayName: True Brain of Cthulhu
+	Mallet.DisplayName: Mallet
 }
 
 ItemBasin.DisplayName: Item Basin

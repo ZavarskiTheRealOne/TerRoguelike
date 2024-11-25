@@ -45,6 +45,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.knockBackResist = 0f;
             modNPC.drawCenter = new Vector2(0, 1);
             lightTex = TexDict["StarSpewerGlow"];
+            NPC.lavaImmune = true;
         }
         public override void AI()
         {
@@ -72,7 +73,7 @@ namespace TerRoguelike.NPCs.Enemy
         {
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 50.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 50.0; i++)
                 {
                     Dust.NewDust(NPC.position, NPC.width, NPC.height, 17, hit.HitDirection, -1f);
                     if (Main.rand.NextBool(4))

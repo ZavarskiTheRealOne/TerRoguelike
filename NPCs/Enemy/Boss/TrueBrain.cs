@@ -21,7 +21,9 @@ using TerRoguelike.Projectiles;
 using TerRoguelike.Systems;
 using TerRoguelike.Utilities;
 using TerRoguelike.World;
+using TerRoguelike.NPCs.Enemy.Boss.Mallet;
 using static TerRoguelike.Managers.TextureManager;
+using static TerRoguelike.Managers.RoomManager;
 using static TerRoguelike.Schematics.SchematicManager;
 using static TerRoguelike.Systems.MusicSystem;
 using static TerRoguelike.Systems.RoomSystem;
@@ -112,10 +114,12 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             Main.npcFrameCount[Type] = 5;
             NPCID.Sets.MustAlwaysDraw[Type] = true;
             SoundEngine.PlaySound(QuakeCooking with { Volume = 0 }); // Play sounds in mod load to force the sound to be ready when first played ingame. otherwise long sounds hitch to load on the fly
+            SoundEngine.PlaySound(TerRoguelikeWorld.PortalLoop with { Volume = 0 });
         }
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 240;
             NPC.height = 150;
             NPC.aiStyle = -1;
@@ -293,7 +297,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(NPC.Center + eyePosition, cutsceneDuration, 30, 30, 1.1f);
+                    CutsceneSystem.SetCutscene(NPC.Center + eyePosition, cutsceneDuration, 30, 30, 1.1f, CutsceneSystem.CutsceneSource.Boss);
                 }
                 NPC.localAI[0]++;
 
@@ -522,7 +526,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     NPC.localAI[1] = 0;
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
             }
             else
@@ -533,7 +538,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
             NPC.ai[1]++;
@@ -628,6 +633,17 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         if (vectToTarget.Length() > maxLength)
                             vectToTarget = vectToTarget.SafeNormalize(Vector2.UnitY) * maxLength;
                         Vector2 projSpawnPos = anchorPos + vectToTarget * new Vector2(0.35f, 1f);
+                        if (RuinedMoonActive && target != null)
+                        {
+                            float realSpeed = 30;
+                            float targetDist = target.Center.Distance(anchorPos);
+                            float travelTime = targetDist / realSpeed;
+                            Vector2 newTargetPos = targetPos + target.velocity * travelTime * 1.1f;
+                            vectToTarget = (newTargetPos - anchorPos);
+                            if (vectToTarget.Length() > maxLength)
+                                vectToTarget = vectToTarget.SafeNormalize(Vector2.UnitY) * maxLength;
+                            projSpawnPos = anchorPos + vectToTarget * new Vector2(0.35f, 1f);
+                        }
 
                         Projectile.NewProjectile(NPC.GetSource_FromThis(), projSpawnPos, vectToTarget.SafeNormalize(Vector2.UnitY) * 15, ModContent.ProjectileType<PhantasmalBolt>(), NPC.damage, 0);
                     }
@@ -667,6 +683,14 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     if (time == 0)
                     {
                         ChargeSlot = SoundEngine.PlaySound(SoundID.NPCHit57 with { Volume = 0.4f, Pitch = 0.45f, PitchVariance = 0.2f, SoundLimitBehavior = SoundLimitBehavior.ReplaceOldest }, NPC.Center);
+                    }
+                    if (RuinedMoonActive)
+                    {
+                        if (time < chargeStartTime - 2)
+                        {
+                            time += 2;
+                            NPC.ai[1] += 2;
+                        }
                     }
                     float completion = time / (float)chargeStartTime;
                     NPC.velocity = -targetVect.SafeNormalize(Vector2.UnitY) * 10 * (1 - completion);
@@ -839,7 +863,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 }
                 else
                 {
-                    if (false && NPC.ai[1] == FakeChargeWindup + FakeChargeTelegraph + FakeChargeDashDuration + 30) // scrapped followup attack from clones
+                    if (RuinedMoonActive && NPC.ai[1] == FakeChargeWindup + FakeChargeTelegraph + FakeChargeDashDuration + 30) // scrapped followup attack from clones
                     {
                         if (phantomPositions.Count > 0)
                         {
@@ -874,7 +898,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             {
                 DefaultMovement();
                 Vector2 targetPos = target != null ? target.Center : spawnPos;
-                if (NPC.ai[1] % CrossBeamCycleTime == 0)
+                int cycleTime = RuinedMoonActive ? CrossBeamCycleTime / 2 : CrossBeamCycleTime;
+                if (NPC.ai[1] % cycleTime == 0)
                 {
                     float radius = 370;
                     float rot = Main.rand.NextFloat(MathHelper.TwoPi);
@@ -941,6 +966,16 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                             Vector2 projSpawnPos = NPC.Center + innerEyePosition + rot.ToRotationVector2() * 4;
                             int proj = Projectile.NewProjectile(NPC.GetSource_FromThis(), projSpawnPos, Vector2.Zero, ModContent.ProjectileType<PhantasmalDeathBeam>(), NPC.damage, 0, -1, projReferencePos.X, projReferencePos.Y);
                             Main.projectile[proj].rotation = rot;
+                        }
+                        if (RuinedMoonActive)
+                        {
+                            for (int i = 0; i < 6; i++)
+                            {
+                                float rot = startRot + i * rotPerCycle;
+                                Vector2 projSpawnPos = NPC.Center + innerEyePosition + rot.ToRotationVector2() * 4;
+                                int proj = Projectile.NewProjectile(NPC.GetSource_FromThis(), projSpawnPos, Vector2.Zero, ModContent.ProjectileType<PhantasmalDeathBeam>(), NPC.damage, 0, -1, projReferencePos.X, projReferencePos.Y, 1);
+                                Main.projectile[proj].rotation = rot;
+                            }
                         }
                     }
                     for (int i = 0; i < SpinBeamTrueEyeTimes.Length; i++)
@@ -1115,6 +1150,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
             if (deadTime == 0)
             {
+
                 NPC.ai[3] = 1;
                 teleportTargetPos = spawnPos + new Vector2(0, -320);
                 enemyHealthBar.ForceEnd(0);
@@ -1122,6 +1158,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 NPC.rotation = 0;
                 modNPC.ignitedStacks.Clear();
                 modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 phantomPositions.Clear();
                 cutsceneEyeVector = teleportTargetPos + innerEyePosition;
                 deathStarPosition = teleportTargetPos + innerEyePosition;
@@ -1134,7 +1171,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     room.bossDead = true;
                     ClearChildren();
                 }
-                CutsceneSystem.SetCutscene(teleportTargetPos, deathCutsceneDuration, 30, 30, 1.25f);
+                CutsceneSystem.SetCutscene(teleportTargetPos, deathCutsceneDuration, 30, 30, 1.25f, CutsceneSystem.CutsceneSource.Boss);
             }
 
             void ClearChildren()
@@ -1312,6 +1349,23 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 }
             }
 
+            if (deadTime == deathCutsceneDuration - 31)
+            {
+                if (modNPC.isRoomNPC || true)
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        if (FloorID[FloorIDsInPlay[i]].jstcProgress != Floor.JstcProgress.Jstc)
+                            break;
+
+                        if (i == 4)
+                        {
+                            NPC n = SpawnManager.SpawnNPCTerRoguelike(NPC.GetSource_FromThis(), CutsceneSystem.cameraTargetCenter, ModContent.NPCType<Mallet.Mallet>(), modNPC.sourceRoomListID);
+                            break;
+                        }
+                    }
+                }
+            }
             if (deadTime >= deathCutsceneDuration - 30)
             {
                 NPC.immortal = false;
@@ -1326,7 +1380,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             if (NPC.life > 0 && deadTime <= 1)
             {
                 SoundEngine.PlaySound(SoundID.NPCHit1, NPC.Center);
-                for (int i = 0; (double)i < hit.Damage * 0.01d; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 1500.0; i++)
                 {
                     int d = Dust.NewDust(NPC.position, NPC.width, NPC.height, DustID.Vortex, hit.HitDirection, -1f, 0, default, 0.9f);
                     Main.dust[d].noLight = true;

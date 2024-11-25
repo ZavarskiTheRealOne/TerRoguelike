@@ -47,6 +47,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             NPC.noTileCollide = false;
             NPC.noGravity = true;
             NPC.hide = true;
+            modNPC.IgniteCentered = true;
         }
         public override void DrawBehind(int index)
         {
@@ -175,7 +176,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         {
             if (NPC.life > 0)
             {
-                for (int i = 0; i < hit.Damage * 0.03d; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 50.0; i++)
                 {
                     Color outlineColor = Color.Lerp(Color.Teal, Color.Cyan, 0.4f);
                     Vector2 offset = Main.rand.NextVector2CircularEdge(2f, 2f) * Main.rand.NextFloat(0.7f, 0.1f);

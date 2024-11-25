@@ -23,6 +23,7 @@ using TerRoguelike.NPCs.Enemy.Boss;
 using Terraria.GameContent;
 using Microsoft.Xna.Framework.Graphics;
 using TerRoguelike.TerPlayer;
+using ReLogic.Utilities;
 
 namespace TerRoguelike.World
 {
@@ -43,15 +44,56 @@ namespace TerRoguelike.World
         public static int quakeTime = 0;
         public static readonly int setQuateTime = 180;
         public static int quakeCooldown = 0;
+        public static int lunarGambitSceneTime = 0;
+        public static Vector2 lunarGambitSceneStartPos = Vector2.Zero;
+        public static int lunarGambitStartDuration = 80;
+        public static int lunarGambitFloatOverDuration = 80;
+        public static Vector2 jstcPortalPos = Vector2.Zero;
+        public static int jstcPortalTime = 0;
+        public static Vector2 jstcPortalScale = Vector2.Zero;
+        public static float jstcPortalRot = 0;
+        public static Vector2 lunarGambitSceneDisplayPos { get
+            {
+                Vector2 drawPos = lunarGambitSceneStartPos;
+                var targetRoom = SchematicManager.RoomID[SchematicManager.RoomDict["LunarBossRoom1"]];
+                Vector2 endTargetPos = targetRoom.RoomPosition16 + targetRoom.RoomCenter16 + Vector2.UnitY * 240;
+                if (lunarGambitSceneTime > lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                    drawPos = endTargetPos;
+                else
+                {
+                    float startInterpolant = MathHelper.Clamp(((float)lunarGambitSceneTime / lunarGambitStartDuration), 0, 1);
+                    drawPos += -Vector2.UnitY * 64 * ((float)Math.Log(startInterpolant, 100) + 1);
+                    float floatOverInterpolant = MathHelper.Clamp((float)(lunarGambitSceneTime - lunarGambitStartDuration) / lunarGambitFloatOverDuration, 0, 1);
+                    drawPos += (endTargetPos - drawPos) * (float)Math.Pow(floatOverInterpolant, 1.7f)
+                        + Vector2.UnitY * 80 * ((float)Math.Pow((floatOverInterpolant - 0.5f) * 2, 2) + 1) * 0.5f + Vector2.UnitY * -80;
+                }
+                return drawPos;
+            } }
+        public static float lunarGambitSceneScaleInterpolant
+        {
+            get
+            {
+                float interpolant = MathHelper.Clamp((lunarGambitSceneTime - lunarGambitStartDuration - lunarGambitFloatOverDuration) / 180f, 0, 1);
+                return MathHelper.SmoothStep(0.1f, 1f, interpolant);
+            }
+        }
         public static int sanctuaryTries = 0;
         public static readonly int sanctuaryMaxTries = 3;
         public static readonly int sanctuaryMaxVisits = 2;
         public static int sanctuaryCount = 0;
+        public static int currentLoop = 0;
+        public static bool promoteLoop = false;
+        public static int currentStageForScaling => currentStage + currentLoop * 6;
         public static float sanctuaryChance => 1 / MathHelper.Clamp(sanctuaryMaxTries - sanctuaryTries, 1, sanctuaryMaxTries);
 
         public static readonly SoundStyle EarthTremor = new SoundStyle("TerRoguelike/Sounds/EarthTremor", 5);
         public static readonly SoundStyle EarthPound = new SoundStyle("TerRoguelike/Sounds/EarthPound", 4);
         public static readonly SoundStyle WorldTeleport = new SoundStyle("TerRoguelike/Sounds/WorldTeleport", 2);
+        public static readonly SoundStyle PortalSpawn = new SoundStyle("TerRoguelike/Sounds/PortalSpawn");
+        public static readonly SoundStyle PortalLoop = new SoundStyle("TerRoguelike/Sounds/PortalLoop");
+        public static readonly SoundStyle AahLoop = new SoundStyle("TerRoguelike/Sounds/AahLoop");
+        public static readonly SoundStyle JstcSpawn = new SoundStyle("TerRoguelike/Sounds/JstcSpawn");
+        public static SlotId PortalSlot;
         public static bool TryWarpToSanctuary(TerRoguelikePlayer modPlayer)
         {
             if (modPlayer.lunarCharm > 0)
@@ -89,8 +131,6 @@ namespace TerRoguelike.World
             for (int i = 0; i < RoomSystem.RoomList.Count; i++)
             {
                 Room room = RoomSystem.RoomList[i];
-                if (room.IsBossRoom)
-                    continue;
 
                 RoomSystem.ResetRoomID(room.ID);
                 if (room.IsStartRoom)

@@ -37,6 +37,10 @@ using TerRoguelike.Particles;
 using TerRoguelike.NPCs.Enemy.Boss;
 using Terraria.Graphics.Effects;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using TerRoguelike.ILEditing;
+using TerRoguelike.Items;
+using TerRoguelike.Schematics;
+using Terraria.Utilities.Terraria.Utilities;
 
 namespace TerRoguelike.Systems
 {
@@ -49,6 +53,7 @@ namespace TerRoguelike.Systems
         public static bool debugDrawNotSpawnedEnemies = false;
         public static List<StoredDraw> postDrawEverythingCache = [];
         public static bool postDrawAllBlack = false;
+        public static int loopingDrama = 0;
         public static void NewRoom(Room room)
         {
             RoomList.Add(room);
@@ -57,8 +62,16 @@ namespace TerRoguelike.Systems
         {
             if (IsTerRoguelikeWorld)
             {
-                Main.time = 34920;
-                Main.dayTime = true;
+                if (ILEdits.dualContrastTileShader)
+                {
+                    Main.time = 16500;
+                    Main.dayTime = false;
+                }
+                else
+                {
+                    Main.time = 34920;
+                    Main.dayTime = true;
+                }
             }
 
             postDrawAllBlack = false;
@@ -156,7 +169,7 @@ namespace TerRoguelike.Systems
                         modPlayer.currentRoom = -1; //Current room is -1 unless the player is inside an active room in RoomList
                         if (room.AssociatedFloor != -1)
                             modPlayer.currentFloor = FloorID[room.AssociatedFloor]; //If player is inside a room with a valid value for an associated floor, set it to that.
-                        if (room.active)
+                        if (room.AllowSettingPlayerCurrentRoom)
                             modPlayer.currentRoom = room.myRoom;
 
                         if (modPlayer.currentFloor.ID == 10 && !lunarFloorInitialized)
@@ -169,7 +182,7 @@ namespace TerRoguelike.Systems
                             if (loopCount >= 2)
                             {
                                 Room jumpstartRoom = RoomList[loopCount - 2];
-                                if (!jumpstartRoom.initialized)
+                                if (!jumpstartRoom.initialized && !jumpstartRoom.IsBossRoom)
                                 {
                                     jumpstartRoom.awake = true;
                                     jumpstartRoom.InitializeRoom();
@@ -181,16 +194,17 @@ namespace TerRoguelike.Systems
                         if (room.CanDescend(player, modPlayer)) //New Floor Blue Wall Portal Teleport
                         {
                             room.Descend(player);
+                            player.fallStart = (int)(player.position.Y / 16f);
                             FloorTransitionEffects();
                         }
                         if (room.CanAscend(player, modPlayer))
                         {
                             room.Ascend(player);
-
+                            player.fallStart = (int)(player.position.Y / 16f);
                             FloorTransitionEffects();
                         }
 
-                        if (room.closedTime == 1) // heal players on room clear so no waiting slog for natural life regen
+                        if (room.closedTime == 1 && !TerRoguelikeMenu.RuinedMoonActive) // heal players on room clear so no waiting slog for natural life regen
                         {
                             player.statLife = player.statLifeMax2;
                         }
@@ -374,9 +388,22 @@ namespace TerRoguelike.Systems
             }
             RoomManager.FloorIDsInPlay = [.. floorIDsInPlay];
 
+            foreach (var floor in FloorID)
+            {
+                floor.Reset();
+            }
+
             // for some reason vanilla isn't certain about where the spawn position is and some crazy camera lerp happens so I'm just gonna make that.. not happen
             Main.BlackFadeIn = 255;
             Main.SetCameraLerp(1, 1);
+
+            if (promoteLoop)
+            {
+                currentLoop++;
+                promoteLoop = false;
+            }
+            else
+                currentLoop = 0;
         }
         #endregion
 
@@ -386,6 +413,7 @@ namespace TerRoguelike.Systems
         public static void ResetRoomID(int id)
         {
             Room room = RoomID[id];
+            room.PreResetRoom();
             room.active = true;
             room.initialized = false;
             room.awake = false;
@@ -424,6 +452,19 @@ namespace TerRoguelike.Systems
         }
         public static void PostDrawEverything(SpriteBatch spritebatch)
         {
+            StartVanillaSpritebatch(false);
+            foreach (NPC npc in Main.ActiveNPCs)
+            {
+                var modNPC = npc.ModNPC();
+                if (modNPC == null || !modNPC.drawAfterEverything)
+                    continue;
+
+                Main.instance.DrawNPCDirect(Main.spriteBatch, npc, false, Main.screenPosition);
+            }
+            Main.spriteBatch.End();
+
+            ParticleManager.DrawParticles_AfterEverything();
+
             Player player = Main.LocalPlayer;
             if (player != null)
             {
@@ -454,6 +495,75 @@ namespace TerRoguelike.Systems
                 Main.EntitySpriteDraw(TextureAssets.MagicPixel.Value, Main.Camera.ScaledPosition - Main.screenPosition, null, Color.LightGray * worldTeleportOpacity, 0, Vector2.Zero, new Vector2(Main.screenWidth, Main.screenHeight * 0.0011f) / ZoomSystem.ScaleVector * 1.1f, SpriteEffects.None);
 
                 Main.spriteBatch.End();
+            }
+            if (loopingDrama > 0)
+            {
+                StartAlphaBlendSpritebatch(false);
+                float worldTeleportOpacity = 1f;
+                int fadeIn = 90;
+                int fadeOut = -1;
+                int totalTime = 120;
+                if (loopingDrama < fadeIn)
+                {
+                    worldTeleportOpacity *= loopingDrama / (float)fadeIn;
+                }
+                if (totalTime - loopingDrama < fadeOut)
+                {
+                    worldTeleportOpacity *= ((totalTime - loopingDrama) / (float)fadeOut);
+                }
+
+                Main.EntitySpriteDraw(TextureAssets.MagicPixel.Value, Main.Camera.ScaledPosition - Main.screenPosition, null, Color.White * worldTeleportOpacity, 0, Vector2.Zero, new Vector2(Main.screenWidth, Main.screenHeight * 0.0011f) / ZoomSystem.ScaleVector * 1.1f, SpriteEffects.None);
+
+                Main.spriteBatch.End();
+            }
+
+            if (lunarGambitSceneTime > 0)
+            {
+                Vector2 drawPos = lunarGambitSceneDisplayPos;
+
+                if (drawPos.Distance(Main.Camera.Center) < 2500)
+                {
+                    drawPos -= Main.screenPosition;
+                    if (lunarGambitSceneTime > lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                    {
+                        float portalScaleInterpolant = lunarGambitSceneScaleInterpolant;
+
+                        StartAdditiveSpritebatch(false);
+
+                        var glowTex = TexDict["CircularGlow"];
+                        Main.EntitySpriteDraw(glowTex, drawPos, null, Color.LightCyan * 0.4f, 0, glowTex.Size() * 0.5f, 1.5f * portalScaleInterpolant, SpriteEffects.None);
+                        Main.spriteBatch.End();
+
+                        Effect portalEffect = Filters.Scene["TerRoguelike:SpecialPortal"].GetShader().Shader;
+                        Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, portalEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                        portalEffect.Parameters["noiseScale"].SetValue(0.75f);
+                        portalEffect.Parameters["uvOff"].SetValue(new Vector2((float)Math.Sin(Main.GlobalTimeWrappedHourly * MathHelper.PiOver4 * 0.25f) * 1f, Main.GlobalTimeWrappedHourly * 0.5f));
+                        portalEffect.Parameters["outerRing"].SetValue(MathHelper.Lerp(0.5f, 0.85f, portalScaleInterpolant));
+                        portalEffect.Parameters["innerRing"].SetValue(MathHelper.Lerp(0.5f, 0.8f, portalScaleInterpolant));
+                        portalEffect.Parameters["invisThreshold"].SetValue(0.35f);
+                        portalEffect.Parameters["edgeBlend"].SetValue(0.08f);
+                        portalEffect.Parameters["tint"].SetValue((Color.Lerp(Color.White, Color.Cyan, portalScaleInterpolant) * 0.8f).ToVector4());
+                        portalEffect.Parameters["edgeTint"].SetValue((Color.White).ToVector4());
+                        portalEffect.Parameters["finalFadeExponent"].SetValue(0.5f);
+                        portalEffect.Parameters["edgeThresholdMulti"].SetValue(1.12f);
+                        portalEffect.Parameters["centerThresholdMulti"].SetValue(0.001f);
+                        portalEffect.Parameters["centerThresholdExponent"].SetValue(1.4f);
+
+                        var tex = TexDict["BlobbyNoiseSmall"];
+
+                        Main.EntitySpriteDraw(tex, drawPos, null, Color.White, 0, tex.Size() * 0.5f, new Vector2(0.5f, 0.5f) * portalScaleInterpolant, SpriteEffects.None);
+
+                        Main.spriteBatch.End();
+                    }
+                    if (lunarGambitSceneTime <= lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                    {
+                        LunarGambit item = new();
+                        StartAlphaBlendSpritebatch(false);
+                        item.DrawLunarGambit(drawPos, 1f, 0);
+                        Main.spriteBatch.End();
+                    }
+                }
             }
 
             if (postDrawEverythingCache == null || postDrawEverythingCache.Count == 0)
@@ -601,6 +711,53 @@ namespace TerRoguelike.Systems
                 Main.spriteBatch.End();
             }
 
+            if (escape && jstcPortalTime != 0)
+            {
+                float portalScaleInterpolant = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(Math.Abs(jstcPortalTime) / 60f, 0, 1));
+                bool portalRot = jstcPortalScale.X > jstcPortalScale.Y;
+
+                Effect portalEffect = Filters.Scene["TerRoguelike:SpecialPortal"].GetShader().Shader;
+
+                var tex = TexDict["BlobbyNoiseSmall"];
+                Vector2 finalScale = new Vector2(1f / tex.Height) * jstcPortalScale * 1.5f;
+                if (portalRot)
+                    finalScale = new Vector2(finalScale.Y, finalScale.X);
+
+                for (int i = 0; i < 3; i++)
+                {
+                    float completion = i / 2f;
+                    float inVcompletion = 1 - completion;
+                    Vector2 loopOff = new Vector2(48 * completion, 0).RotatedBy(jstcPortalRot);
+                    float loopScale = 1 - (i / 6f);
+
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Additive, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, portalEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                    float noiseScaleModif = MathHelper.Lerp(1, 0.5f, completion);
+                    portalEffect.Parameters["noiseScale"].SetValue(0.75f * noiseScaleModif);
+                    portalEffect.Parameters["uvOff"].SetValue(new Vector2((float)Math.Sin(Main.GlobalTimeWrappedHourly * MathHelper.PiOver4 * 0.25f) * 1f, Main.GlobalTimeWrappedHourly * 0.5f) * noiseScaleModif);
+                    portalEffect.Parameters["outerRing"].SetValue(MathHelper.Lerp(0.5f, MathHelper.Lerp(0.8f, 0.65f, completion), portalScaleInterpolant));
+                    portalEffect.Parameters["innerRing"].SetValue(0);
+                    portalEffect.Parameters["invisThreshold"].SetValue(0.35f);
+                    portalEffect.Parameters["edgeBlend"].SetValue(0.08f);
+                    portalEffect.Parameters["tint"].SetValue((Color.Lerp(Color.White, Color.Yellow, portalScaleInterpolant) * 0.8f * MathHelper.Lerp(1, 0.6f, completion)).ToVector4());
+                    portalEffect.Parameters["edgeTint"].SetValue((Color.White * MathHelper.Lerp(1, 0.7f, completion)).ToVector4());
+                    portalEffect.Parameters["finalFadeExponent"].SetValue(0.5f);
+                    portalEffect.Parameters["edgeThresholdMulti"].SetValue(0);
+                    portalEffect.Parameters["centerThresholdMulti"].SetValue(0.001f);
+                    portalEffect.Parameters["centerThresholdExponent"].SetValue(1.4f);
+
+                    loopOff *= finalScale.Y * 1.25f;
+                    if (i != 0)
+                    {
+                        loopOff += loopOff.SafeNormalize(Vector2.UnitY) * (float)Math.Cos(Main.GlobalTimeWrappedHourly * MathHelper.Pi) * 1.4f * i;
+                    }
+                    Main.EntitySpriteDraw(tex, jstcPortalPos - Main.screenPosition + loopOff, null, Color.White, portalRot ? MathHelper.PiOver2 : 0, tex.Size() * 0.5f, finalScale * portalScaleInterpolant * loopScale, SpriteEffects.None);
+
+                    Main.spriteBatch.End();
+                }
+
+            }
+
             DrawSpecialPendingItems();
             DrawHealingPulse();
 
@@ -680,15 +837,30 @@ namespace TerRoguelike.Systems
             if (SpawnManager.pendingEnemies.Count == 0)
                 return;
 
-            Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
             Color color = Color.HotPink;
+            Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
             Vector3 colorHSL = Main.rgbToHsl(color);
             GameShaders.Misc["TerRoguelike:BasicTint"].UseOpacity(0.4f);
             GameShaders.Misc["TerRoguelike:BasicTint"].UseColor(Main.hslToRgb(1 - colorHSL.X, colorHSL.Y, colorHSL.Z));
             GameShaders.Misc["TerRoguelike:BasicTint"].Apply();
+
             for (int i = 0; i < SpawnManager.pendingEnemies.Count; i++)
             {
                 PendingEnemy enemy = SpawnManager.pendingEnemies[i];
+
+                Color newColor = SpawnManager.GetEliteColor(enemy.eliteVars);
+                if (newColor != color)
+                {
+                    color = newColor;
+
+                    Main.spriteBatch.End();
+                    Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, null, Main.GameViewMatrix.TransformationMatrix);
+                    colorHSL = Main.rgbToHsl(color);
+                    GameShaders.Misc["TerRoguelike:BasicTint"].UseOpacity(0.4f);
+                    GameShaders.Misc["TerRoguelike:BasicTint"].UseColor(Main.hslToRgb(1 - colorHSL.X, colorHSL.Y, colorHSL.Z));
+                    GameShaders.Misc["TerRoguelike:BasicTint"].Apply();
+                }
+
                 Texture2D texture = enemy.dummyTex;
                 int frameCount = Main.npcFrameCount[enemy.NPCType];
                 int height = (int)(texture.Height / frameCount);
@@ -988,10 +1160,203 @@ namespace TerRoguelike.Systems
                     worldTeleportTime = 0;
             }
 
+            if (escape)
+            {
+                int furthest = 100;
+                foreach (Player player in Main.ActivePlayers)
+                {
+                    var modPlayer = player.ModPlayer();
+                    if (modPlayer.currentFloor.Stage < furthest)
+                        furthest = modPlayer.currentFloor.Stage;
+                }
+                for (int i = 0; i < RoomManager.FloorIDsInPlay.Count; i++)
+                {
+                    Floor floor = FloorID[RoomManager.FloorIDsInPlay[i]];
+                    if (floor.Stage == furthest && floor.Stage >= 0 && floor.Stage <= 4)
+                    {
+                        floor.jstcUpdate();
+                    }
+                }
+            }
+
+            if (lunarGambitSceneTime > 0)
+            {
+                lunarGambitSceneTime++;
+
+                Vector2 drawPos = lunarGambitSceneDisplayPos;
+
+                if (drawPos.Distance(Main.Camera.Center) < 2500)
+                {
+                    if (lunarGambitSceneTime > lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                    {
+                        if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound) && portalSound.IsPlaying)
+                        {
+                            UpdatePortalSound(portalSound);
+                        }
+                        else
+                        {
+                            if (!CreditsSystem.creditsActive)
+                                PortalSlot = SoundEngine.PlaySound(PortalLoop with { IsLooped = true, Volume = 0.64f, Pitch = -0.5f }, drawPos);
+
+                            if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound2) && portalSound2.IsPlaying)
+                            {
+                                UpdatePortalSound(portalSound2);
+                            }
+                        }
+                        void UpdatePortalSound(ActiveSound sound)
+                        {
+                            float interpolant = MathHelper.Clamp((lunarGambitSceneTime - lunarGambitStartDuration - lunarGambitFloatOverDuration) / 180f, 0, 1);
+
+                            sound.Volume = interpolant;
+                            sound.Pitch = (float)Math.Cos(Main.GlobalTimeWrappedHourly * MathHelper.TwoPi) * 0.25f - 0.5f;
+                        }
+                        if (lunarGambitSceneTime > lunarGambitStartDuration + lunarGambitFloatOverDuration + 180)
+                        {
+                            if (loopingDrama <= 0)
+                            {
+                                foreach (Player player in Main.ActivePlayers)
+                                {
+                                    if (!player.dead && player.Center.Distance(drawPos) < 136)
+                                    {
+                                        loopingDrama++;
+                                        SoundEngine.PlaySound(WorldTeleport with { Volume = 0.3f, Variants = [1], Pitch = -0.25f });
+                                        CutsceneSystem.SetCutscene(drawPos, 120, 90, 2, 2.5f);
+                                        ScreenshakeSystem.SetScreenshake(120, 6);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        float portalScaleInterpolant = lunarGambitSceneScaleInterpolant;
+                        float portalRadius = 130 * portalScaleInterpolant;
+                        Vector2 randVect = Main.rand.NextVector2CircularEdge(portalRadius, portalRadius);
+                        Vector2 ballVel = randVect.RotatedBy(MathHelper.Pi * 0.4f * (randVect.X > 0 ? -1 : 1)) * 0.05f;
+                        if (portalScaleInterpolant < 1)
+                            ballVel += randVect.SafeNormalize(Vector2.UnitY) * 0.8f;
+                        ParticleManager.AddParticle(new Ball(
+                            drawPos + randVect, ballVel, 
+                            30, Color.Lerp(Color.Cyan, Color.White, Main.rand.NextFloat(0.999999f - portalScaleInterpolant, 1)), 
+                            new Vector2(0.14f) * MathHelper.Lerp(portalScaleInterpolant, 1, 0.4f), 0, 0.96f, 30));
+                    }
+                    if (lunarGambitSceneTime <= lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                    {
+                        if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound) && portalSound.IsPlaying)
+                        {
+                            UpdateMoonSound(portalSound);
+                        }
+                        else
+                        {
+                            if (!CreditsSystem.creditsActive)
+                                PortalSlot = SoundEngine.PlaySound(AahLoop with { IsLooped = true, Volume = 0.07f, Pitch = 0f }, drawPos);
+
+                            if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound2) && portalSound2.IsPlaying)
+                            {
+                                UpdateMoonSound(portalSound2);
+                            }
+                        }
+                        void UpdateMoonSound(ActiveSound sound)
+                        {
+                            if (lunarGambitSceneTime == lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                            {
+                                sound.Stop();
+                                return;
+                            }
+                                
+                            sound.Position = drawPos;
+
+                            float basePitch = 0;
+                            basePitch = MathHelper.Lerp(basePitch, 1f, MathHelper.Clamp(lunarGambitSceneTime / 50f, 0, 1));
+                            if (lunarGambitSceneTime >= lunarGambitStartDuration)
+                            {
+                                basePitch = MathHelper.Lerp(basePitch, -1f, MathHelper.Clamp((float)Math.Pow(1 - ((lunarGambitSceneTime - lunarGambitStartDuration - lunarGambitFloatOverDuration) / -70f), 3), 0, 1));
+                            }
+                            sound.Pitch = basePitch;
+
+                            sound.Volume = lunarGambitSceneTime < 60 ? MathHelper.Clamp(lunarGambitSceneTime / 60f, 0, 1) : MathHelper.Clamp((lunarGambitSceneTime - lunarGambitStartDuration - lunarGambitFloatOverDuration) / -4f, 0, 1);
+                        }
+
+                        int randBoolValue = lunarGambitSceneTime > lunarGambitStartDuration + lunarGambitFloatOverDuration - 30 ? 5 : 2;
+                        if (Main.rand.NextBool(randBoolValue))
+                        {
+                            ParticleManager.AddParticle(new Ball(
+                                drawPos,
+                                Main.rand.NextVector2CircularEdge(3, 3) * Main.rand.NextFloat(0.5f, 1f),
+                                30, Color.Lerp(Color.White, Color.Cyan, Main.rand.NextFloat(0.3f, 1f)) * 1,
+                                new Vector2(Main.rand.NextFloat(0.5f, 1f) * 0.12f), 0, 0.96f, 30, true, false), ParticleManager.ParticleLayer.Default);
+                        }
+                        if (lunarGambitSceneTime == lunarGambitStartDuration + lunarGambitFloatOverDuration)
+                        {
+                            SoundEngine.PlaySound(SoundID.NPCDeath43 with { Pitch = -0.35f, PitchVariance = 0, Volume = 0.5f}, drawPos);
+                            ExtraSoundSystem.ExtraSounds.Add(new(SoundEngine.PlaySound(PortalSpawn with { Pitch = -0.7f, PitchVariance = 0, Volume = 1f }, drawPos), 1.5f));
+                            for (int i = 0; i < 9; i++)
+                            {
+                                float rot = i / 9f * MathHelper.TwoPi + MathHelper.PiOver2;
+                                Vector2 rotVect = rot.ToRotationVector2();
+                                ParticleManager.AddParticle(new Debris(
+                                    drawPos + rotVect * 5, (rotVect * new Vector2(3f, 2.4f) * Main.rand.NextFloat(0.4f, 1f) - Vector2.UnitY * 1.2f), 
+                                    50, Color.Lerp(Color.Cyan, Color.White, Main.rand.NextFloat(0.4f)), new Vector2(Main.rand.NextFloat(0.55f, 0.72f)), 0, 
+                                    Main.rand.NextFloat(MathHelper.TwoPi), SpriteEffects.None, 0.14f, 10, 30));
+
+                                ParticleManager.AddParticle(new Ball(
+                                    drawPos, rotVect.RotatedBy(Main.rand.NextFloat(-0.2f, 0.2f)) * 5 * Main.rand.NextFloat(0.4f, 1f), 60, Color.White * 0.5f, new Vector2(Main.rand.NextFloat(0.15f, 0.25f)), 0, 0.92f, 50));
+                            }
+                        }
+                    }
+                }
+                else if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound))
+                {
+                    portalSound.Stop();
+                }
+
+                if (loopingDrama > 0)
+                {
+                    if (loopingDrama == 120)
+                    {
+                        loopingDrama = 0;
+                        ZoomSystem.SetZoomAnimation(Main.GameZoomTarget, 2);
+                        if (TerRoguelikeWorld.IsDeletableOnExit)
+                        {
+                            TerRoguelikeMenu.desiredPlayer = Main.ActivePlayerFileData;
+                            TerRoguelikeMenu.wipeTempWorld = true;
+                            TerRoguelikeMenu.prepareForRoguelikeGeneration = true;
+                            TerRoguelikeWorld.promoteLoop = true;
+                        }
+                        SetCalm(Silence);
+                        SetCombat(Silence);
+                        SetMusicMode(MusicStyle.Silent);
+                        WorldGen.SaveAndQuit();
+                    }
+                    loopingDrama++;
+                }
+            }
+            if (escape && jstcPortalTime != 0)
+            {
+                float portalScaleInterpolant = MathHelper.SmoothStep(0f, 1f, MathHelper.Clamp(Math.Abs(jstcPortalTime) / 60f, 0, 1));
+                Vector2 finalScale = jstcPortalScale * 1.5f * portalScaleInterpolant;
+                float rot = finalScale.X > finalScale.Y ? MathHelper.PiOver2 : 0;
+
+                
+                for (int i = 0; i < 2; i++)
+                {
+                    float rate = Math.Max(jstcPortalScale.X, jstcPortalScale.Y) / 250f;
+                    if (Main.rand.NextFloat() < rate)
+                    {
+                        Vector2 randVect = Main.rand.NextVector2CircularEdge(finalScale.X * 0.4f, finalScale.Y * 0.4f);
+                        Vector2 ballVel = -randVect * 0.1f;
+                        ballVel = ballVel.ToRotation().AngleLerp(jstcPortalRot, Main.rand.NextFloat(0.5f, 0.9f)).ToRotationVector2() * Main.rand.NextFloat(2f, 6f);
+
+                        ParticleManager.AddParticle(new Ball(
+                            jstcPortalPos + randVect, ballVel,
+                            30, Color.Lerp(Color.Yellow, Color.White, Main.rand.NextFloat(0.999999f - portalScaleInterpolant, 1)),
+                            new Vector2(0.14f) * MathHelper.Lerp(portalScaleInterpolant, 1, 0.4f), 0, 0.96f, 30));
+                    }
+                }
+            }
+
             if (itemBasins.Count > 0)
             {
                 bool spawnParticles = (int)(Main.GlobalTimeWrappedHourly * 60) % 4 == 0;
-                int basinTileType = ModContent.TileType<ItemBasin>();
+                int basinTileType = ModContent.TileType<Tiles.ItemBasin>();
                 bool interact = PlayerInput.Triggers.JustPressed.MouseRight && !Main.mapFullscreen;
                 Player player = Main.LocalPlayer;
                 if (player == null || !player.active || player.ModPlayer() == null)
@@ -1086,8 +1451,19 @@ namespace TerRoguelike.Systems
             quakeTime = 0;
             quakeCooldown = 0;
             postDrawEverythingCache.Clear();
+            lunarGambitSceneTime = 0;
+            lunarGambitSceneStartPos = Vector2.Zero;
+            loopingDrama = 0;
+            jstcPortalPos = Vector2.Zero;
+            jstcPortalTime = 0;
+            ILEdits.dualContrastTileShader = false;
 
             TerRoguelikeWorldManagementSystem.currentlyGeneratingTerRoguelikeWorld = false;
+
+            if (SoundEngine.TryGetActiveSound(PortalSlot, out var portalSound))
+            {
+                portalSound.Stop();
+            }
         }
         public override void SetStaticDefaults()
         {

@@ -28,8 +28,7 @@ namespace TerRoguelike.Rooms
         public override void InitializeRoom()
         {
             base.InitializeRoom();
-            if (!TerRoguelikeWorld.escape)
-                AddBoss(bossSpawnPos, ModContent.NPCType<TempleGolem>());
+            AddBoss(bossSpawnPos, ModContent.NPCType<TempleGolem>());
         }
         public override void Update()
         {
@@ -40,7 +39,7 @@ namespace TerRoguelike.Rooms
         public override void PostDrawTilesRoom()
         {
             base.PostDrawTilesRoom();
-            if (initialized)
+            if (initialized || (TerRoguelikeWorld.escape && FloorID[AssociatedFloor].jstcProgress == Floor.JstcProgress.Start))
                 return;
 
             int npcType = ModContent.NPCType<TempleGolem>();

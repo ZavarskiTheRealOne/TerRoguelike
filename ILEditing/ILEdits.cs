@@ -60,6 +60,79 @@ namespace TerRoguelike.ILEditing
             IL_Player.Update += RopeMovementILEdit;
             On_Player.SlopingCollision += On_Player_SlopingCollision;
             On_NPC.Collision_MoveSlopesAndStairFall += On_NPC_Collision_MoveSlopesAndStairFall;
+            On_TileDrawing.Draw += On_TileDrawing_Draw;
+            On_TileDrawing.DrawMultiTileVines += On_TileDrawing_DrawMultiTileVines;
+            On_TileDrawing.DrawReverseVines += On_TileDrawing_DrawReverseVines;
+            On_NPC.UpdateNPC_Inner += NPCExtraUpdate;
+        }
+
+        private void NPCExtraUpdate(On_NPC.orig_UpdateNPC_Inner orig, NPC self, int i)
+        {
+            orig.Invoke(self, i);
+            var modNPC = self.ModNPC();
+            if (modNPC != null)
+            {
+                if (modNPC.currentUpdate < modNPC.maxUpdates)
+                {
+                    modNPC.currentUpdate++;
+                    self.UpdateNPC(self.whoAmI);
+                    modNPC.currentUpdate = 1;
+                }
+            }
+        }
+
+        public static bool dualContrastTileShader = false;
+        private void On_TileDrawing_DrawMultiTileVines(On_TileDrawing.orig_DrawMultiTileVines orig, TileDrawing self)
+        {
+            if (!dualContrastTileShader)
+            {
+				orig.Invoke(self);
+                return;
+            }
+
+            Main.spriteBatch.End();
+            Effect tileEffect = Filters.Scene["TerRoguelike:DualContrast"].GetShader().Shader;
+            Main.spriteBatch.Begin((SpriteSortMode)0, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, tileEffect, Main.GameViewMatrix.TransformationMatrix);
+
+            tileEffect.Parameters["lightTint"].SetValue(Color.Black.ToVector4());
+            tileEffect.Parameters["darkTint"].SetValue(new Color(17, 80, 207).ToVector4());
+            tileEffect.Parameters["contrastThreshold"].SetValue(0.3f);
+
+            orig.Invoke(self);
+        }
+        private void On_TileDrawing_DrawReverseVines(On_TileDrawing.orig_DrawReverseVines orig, TileDrawing self)
+        {
+            if (!dualContrastTileShader)
+            {
+                orig.Invoke(self);
+                return;
+            }
+
+            dualContrastTileShader = false;
+            orig.Invoke(self);
+
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin((SpriteSortMode)0, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, (Effect)null, Main.Transform);
+        }
+        private void On_TileDrawing_Draw(On_TileDrawing.orig_Draw orig, TileDrawing self, bool solidLayer, bool forRenderTargets, bool intoRenderTargets, int waterStyleOverride)
+        {
+			if (!dualContrastTileShader)
+			{
+                orig.Invoke(self, solidLayer, forRenderTargets, intoRenderTargets, waterStyleOverride);
+				return;
+            }
+
+			Main.spriteBatch.End();
+            Effect tileEffect = Filters.Scene["TerRoguelike:DualContrast"].GetShader().Shader;
+            Main.spriteBatch.Begin((SpriteSortMode)0, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, tileEffect, Main.GameViewMatrix.EffectMatrix);
+
+            tileEffect.Parameters["lightTint"].SetValue(Color.Black.ToVector4());
+            tileEffect.Parameters["darkTint"].SetValue(new Color(17, 80, 207).ToVector4());
+            tileEffect.Parameters["contrastThreshold"].SetValue(0.25f);
+            orig.Invoke(self, solidLayer, forRenderTargets, intoRenderTargets, waterStyleOverride);
+
+            Main.spriteBatch.End();
+            Main.spriteBatch.Begin((SpriteSortMode)0, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, (Effect)null, Main.Transform);
         }
 
         private void RopeMovementILEdit(ILContext il)
@@ -175,6 +248,7 @@ namespace TerRoguelike.ILEditing
 
 			NPC npc = passInNPC == -1 ? null : Main.npc[passInNPC];
 			Player player = passInPlayer == -1 ? null : Main.player[passInPlayer];
+
 			stair = false;
 			stairFall = false;
 			bool[] array = new bool[5];

@@ -3,6 +3,7 @@ DeathKilledBy: Ucciso da:
 DeathItems: Oggetti:
 DeathMainMenu: Menu Principale
 DeathQuickRestart: Riavvio Rapido
+// DeathLoop: Loop:
 BlockedAlert: bloccato!
 HealthUpAlert: Incremento Salute!
 BarrierName: Barriera
@@ -30,6 +31,16 @@ FullMoonDescription: L'esperienza prevista di TerRoguelike
 BloodMoonName: Luna di Sangue
 BloodMoonDescription1: Aumenta un pò la difficoltà
 BloodMoonDescription2: Diminuisce il tempo di invincibilità, i boss attaccano più spesso
+// SunnyDayName: Sunny Day
+// SunnyDayDescription1: For when it's really needed
+// SunnyDayDescription2: Greater New Moon effects, reduced boss health, more movement speed when the time is right
+// RuinedMoonName: Ruined Moon
+// RuinedMoonDescription1: Where fun goes to die
+// RuinedMoonDescription2: Do not play this, seriously
+// EliteTainted: "Tainted "
+// EliteSlugged: "Slugged "
+// EliteBurdened: "Burdened "
+// TrashDescription: On Tuesdays from 10PM to 11PM, +1 bounce for main projectiles
 
 Projectiles: {
 	ClingyGrenade.DisplayName: Granata Appiccicosa
@@ -139,6 +150,8 @@ Projectiles: {
 	AdaptiveDaggerHoldout.DisplayName: Impugnare Pugnale Adattivo
 	AdaptiveDaggerStab.DisplayName: Pugnalare Pugnale Adattivo
 	AdaptiveRifleHoldout.DisplayName: Impugnare Fucile Adattivo
+	// FalseSunBeam.DisplayName: False Sun Beam
+	// ResidualBurden.DisplayName: Residual Burden
 }
 
 Items: {
@@ -677,8 +690,8 @@ Items: {
 		DisplayName: Overclocker
 		Tooltip:
 			'''
-			Build up a burst of up to 400% increased attack speed after not attacking for up to 6 seconds
-			Extra copies of this item increase the buildup rate by 100%
+			Accumula un bonus esplosivo fino al 400% alla velocità d'attacco non attaccando fino a 6 secondi
+			Ogni copie extra dell'oggetto aumentano la velocità d'accumulo del 100%
 			'''
 	}
 
@@ -952,6 +965,30 @@ Items: {
 			Ottiene il uso automatico da 2x di velocità di attacco o maggiore
 			'''
 	}
+
+	LunarGambit: {
+		DisplayName: Mossa Lunare
+		Tooltip:
+			'''
+			Un cimelio segreto, nascosto frettolosamente nel già velato Santuario Lunare, da una faccia da molto perduta nel tempo
+			Permette l'opportunità di ritornare all'inizo del dungeon dopo aver sconfitto il Signore della Luna
+			Ritornare in questo modo ti permette di affrontare il dungeon con tutti i tuoi oggetti e dandoti la possibilità di ottenerne di nuovi
+			In compenso, i nemici continueranno a diventare più forti ad ogni piano che superi
+			'''
+	}
+
+	TheFalseSun: {
+		DisplayName: Il Sole Falso
+		Tooltip:
+			'''
+			Aumenta la probabilità di colpi critici del 5%
+			Infliggere un colpo critico su un nemico fa accumulare energia solare che decade nel tempo
+			Il danno e gittata del sole sono in rapporto con la quantità di energia solare presente
+			Il sole falso può colpire 3 nemici vicini ad esso infliggendo fino a 75 danni base
+			I colpi critici dal sole falso stesso non creano energia solare
+			Ogni copie extra dell'oggetto aumentano il danno base di 75
+			'''
+	}
 }
 
 NPCs: {
@@ -1051,6 +1088,7 @@ NPCs: {
 	MoonLordHead.DisplayName: Occhio del Signore della Luna
 	TrueServant.DisplayName: Vero Servo di Cthulhu
 	TrueBrain.DisplayName: Vero Cervello di Cthulhu
+	// Mallet.DisplayName: Mallet
 }
 
 ItemBasin.DisplayName: Fontana degli Oggetti

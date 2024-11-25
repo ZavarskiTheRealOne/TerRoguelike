@@ -10,12 +10,15 @@ using Terraria.Graphics.Shaders;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Default;
+using TerRoguelike.MainMenu;
 using TerRoguelike.Managers;
 using TerRoguelike.NPCs.Enemy.Boss;
 using TerRoguelike.Projectiles;
+using TerRoguelike.Schematics;
 using TerRoguelike.Systems;
 using TerRoguelike.TerPlayer;
 using TerRoguelike.World;
+using Terraria.Graphics.Effects;
 using static TerRoguelike.Managers.TextureManager;
 using static TerRoguelike.Systems.RoomSystem;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
@@ -25,6 +28,7 @@ namespace TerRoguelike.NPCs
     public class TerRoguelikeGlobalNPC : GlobalNPC
     {
         #region Variables
+        public bool TerRoguelikeBoss = false;
         public bool isRoomNPC = false;
         public int sourceRoomListID = -1;
         public bool hostileTurnedAlly = false;
@@ -53,6 +57,9 @@ namespace TerRoguelike.NPCs
         public float AdaptiveArmorAddRate = 20;
         public float AdaptiveArmorDecayRate = 60;
         public float AdaptiveArmor = 0;
+        public int currentUpdate = 1;
+        public int maxUpdates = 1;
+        public bool drawAfterEverything = false;
 
         //On kill bools to not let an npc somehow proc it more than once on death.
         public bool activatedHotPepper = false;
@@ -67,6 +74,8 @@ namespace TerRoguelike.NPCs
         public bool activatedNutritiousSlime = false;
         public bool activatedItemPotentiometer = false;
 
+        public bool activatedJstc = false;
+
         //debuffs
         public List<IgnitedStack> ignitedStacks = [];
         public int ignitedHitCooldown = 0;
@@ -80,6 +89,30 @@ namespace TerRoguelike.NPCs
         public int targetNPC = -1;
         public int friendlyFireHitCooldown = 0;
         public bool OverrideIgniteVisual = false;
+        public bool IgniteCentered = false;
+
+        //elites
+        public EliteVars eliteVars = new();
+        public bool sluggedSlowApplied = false;
+        public class EliteVars
+        {
+            public EliteVars(EliteVars flags)
+            {
+                tainted = flags.tainted;
+                slugged = flags.slugged;
+                burdened = flags.burdened;
+                
+            }
+            public EliteVars()
+            {
+                tainted = false;
+                slugged = false;
+                burdened = false;
+            }
+            public bool tainted; // kb immunity, extra update, lesser adaptive armor
+            public bool slugged; // kb immunity, slower, inflicts slowness, more damage, innate armor, adaptive armor
+            public bool burdened; // kb immunity, spreads residual burden, adaptive armor
+        }
         #endregion
 
         #region Base AIs
@@ -1248,6 +1281,8 @@ namespace TerRoguelike.NPCs
 
             npc.stairFall = true;
 
+            npc.ai[1]++;
+
             if (npc.collideY)
             {
                 int fluff = 6;
@@ -1265,9 +1300,21 @@ namespace TerRoguelike.NPCs
                 }
             }
 
+            float magnitude = 0.5f;
+
             if (target != null)
             {
-                Vector2 targetPos = target.Center + new Vector2(0, -distanceAbove);
+                Vector2 targetPos = target.Center + new Vector2(0, -distanceAbove - 1);
+                targetPos = TileCollidePositionInLine(target.Center, targetPos);
+                targetPos += Vector2.UnitY;
+                bool canSeeTarget = CanHitInLine(target.Center, npc.Center);
+                bool canSeeTargetPos = CanHitInLine(npc.Top, targetPos);
+                if (!canSeeTargetPos || !canSeeTarget)
+                {
+                    magnitude = 1;
+                    npc.velocity += Vector2.UnitY * acceleration * 0.25f * (float)Math.Cos(npc.ai[1] / 600f * MathHelper.TwoPi);
+                }
+
                 if ((npc.Center - targetPos).Length() < attackDistance)
                 {
                     npc.velocity *= 0.95f;
@@ -1278,7 +1325,12 @@ namespace TerRoguelike.NPCs
                 }
                 else
                 {
-                    npc.velocity += (targetPos - npc.Center).SafeNormalize(Vector2.UnitY) * acceleration;
+                    if (canSeeTarget && canSeeTargetPos)
+                        npc.velocity += (targetPos - npc.Center).SafeNormalize(Vector2.UnitY) * acceleration;
+                    else if (canSeeTarget)
+                        npc.velocity += (target.Center - npc.Center).SafeNormalize(Vector2.UnitY) * acceleration;
+                    else
+                        npc.velocity += new Vector2(1 * acceleration * (npc.velocity.X == 0 ? 1 : Math.Sign(npc.velocity.X)), 0);
                 }
                 if (npc.velocity.Length() > maxVelocity)
                 {
@@ -1317,6 +1369,8 @@ namespace TerRoguelike.NPCs
                     npc.velocity = npc.velocity.SafeNormalize(Vector2.UnitX) * maxVelocity;
                 }
             }
+
+            npc.velocity += Vector2.UnitY * acceleration * magnitude * (float)Math.Cos(npc.ai[1] / 20f * MathHelper.TwoPi);
 
             if (npc.collideX)
             {
@@ -2112,15 +2166,56 @@ namespace TerRoguelike.NPCs
                 if (Math.Abs(npc.velocity.X) > speedCap)
                     npc.velocity.X = speedCap * npc.direction;
 
-                Point targetBlock = new Point((int)((npc.position.X + (npc.direction == 1 ? npc.width + 1 : -1)) / 16f), (int)((npc.Bottom.Y + 1) / 16f));
+                Point targetBlock = (npc.Bottom + Vector2.UnitY).ToTileCoordinates();
 
                 if (npc.collideX && npc.ai[2] >= 0)
                 {
                     npc.ai[0]++;
                 }
-                else if (!Main.tile[targetBlock.X, targetBlock.Y].IsTileSolidGround() && npc.ai[2] >= 0)
+                else if (npc.velocity.Y == 0 && !ParanoidTileRetrieval(targetBlock).IsTileSolidGround() && !ParanoidTileRetrieval(targetBlock + new Point(0, 1)).IsTileSolidGround() && npc.ai[2] >= 0)
                 {
                     npc.ai[0]++;
+                }
+                else if (npc.velocity.Y >= 0f)
+                {
+                    int dir = 0;
+                    if (npc.velocity.X < 0f)
+                        dir = -1;
+                    if (npc.velocity.X > 0f)
+                        dir = 1;
+
+                    Vector2 futurePos = npc.position;
+                    futurePos.X += npc.velocity.X;
+                    int tileX = (int)((futurePos.X + (float)(npc.width / 2) + (float)((npc.width / 2 + 1) * dir)) / 16f);
+                    int tileY = (int)((futurePos.Y + (float)npc.height - 1f) / 16f);
+                    if (WorldGen.InWorld(tileX, tileY, 4))
+                    {
+                        if ((float)(tileX * 16) < futurePos.X + (float)npc.width && (float)(tileX * 16 + 16) > futurePos.X && ((Main.tile[tileX, tileY].HasUnactuatedTile && !TopSlope(Main.tile[tileX, tileY]) && !TopSlope(Main.tile[tileX, tileY - 1]) && Main.tileSolid[Main.tile[tileX, tileY].TileType] && !Main.tileSolidTop[Main.tile[tileX, tileY].TileType]) || (Main.tile[tileX, tileY - 1].IsHalfBlock && Main.tile[tileX, tileY - 1].HasUnactuatedTile)) && (!Main.tile[tileX, tileY - 1].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 1].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 1].TileType] || (Main.tile[tileX, tileY - 1].IsHalfBlock && (!Main.tile[tileX, tileY - 4].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 4].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 4].TileType]))) && (!Main.tile[tileX, tileY - 2].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 2].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 2].TileType]) && (!Main.tile[tileX, tileY - 3].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 3].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 3].TileType]) && (!Main.tile[tileX - dir, tileY - 3].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX - dir, tileY - 3].TileType]))
+                        {
+                            float tilePosY = tileY * 16;
+                            if (Main.tile[tileX, tileY].IsHalfBlock)
+                                tilePosY += 8f;
+
+                            if (Main.tile[tileX, tileY - 1].IsHalfBlock)
+                                tilePosY -= 8f;
+
+                            if (tilePosY < futurePos.Y + (float)npc.height)
+                            {
+                                float difference = futurePos.Y + (float)npc.height - tilePosY;
+                                if (difference <= 16.1f)
+                                {
+                                    npc.gfxOffY += npc.position.Y + (float)npc.height - tilePosY;
+                                    npc.position.Y = tilePosY - (float)npc.height;
+                                }
+
+                                if (difference < 9f)
+                                    npc.stepSpeed = 1f;
+                                else
+                                    npc.stepSpeed = 2f;
+                            }
+
+                        }
+                    }
                 }
             }
             else
@@ -2158,15 +2253,56 @@ namespace TerRoguelike.NPCs
                 if (Math.Abs(npc.velocity.X) > speedCap * speedMulti)
                     npc.velocity.X = speedCap * npc.direction * speedMulti;
 
-                Point targetBlock = new Point((int)((npc.position.X + (npc.direction == 1 ? npc.width + 1 : -1)) / 16f), (int)((npc.Bottom.Y + 1) / 16f));
+                Point targetBlock = (npc.Bottom + Vector2.UnitY).ToTileCoordinates();
 
                 if (npc.collideX && npc.ai[2] >= 0)
                 {
                     npc.ai[0]++;
                 }
-                else if (!Main.tile[targetBlock.X, targetBlock.Y].IsTileSolidGround() && npc.ai[2] >= 0)
+                else if (npc.collideY && !Main.tile[targetBlock.X, targetBlock.Y].IsTileSolidGround() && !ParanoidTileRetrieval(targetBlock + new Point(0, 1)).IsTileSolidGround() && npc.ai[2] >= 0)
                 {
                     npc.ai[0]++;
+                }
+                else if (npc.velocity.Y >= 0f)
+                {
+                    int dir = 0;
+                    if (npc.velocity.X < 0f)
+                        dir = -1;
+                    if (npc.velocity.X > 0f)
+                        dir = 1;
+
+                    Vector2 futurePos = npc.position;
+                    futurePos.X += npc.velocity.X;
+                    int tileX = (int)((futurePos.X + (float)(npc.width / 2) + (float)((npc.width / 2 + 1) * dir)) / 16f);
+                    int tileY = (int)((futurePos.Y + (float)npc.height - 1f) / 16f);
+                    if (WorldGen.InWorld(tileX, tileY, 4))
+                    {
+                        if ((float)(tileX * 16) < futurePos.X + (float)npc.width && (float)(tileX * 16 + 16) > futurePos.X && ((Main.tile[tileX, tileY].HasUnactuatedTile && !TopSlope(Main.tile[tileX, tileY]) && !TopSlope(Main.tile[tileX, tileY - 1]) && Main.tileSolid[Main.tile[tileX, tileY].TileType] && !Main.tileSolidTop[Main.tile[tileX, tileY].TileType]) || (Main.tile[tileX, tileY - 1].IsHalfBlock && Main.tile[tileX, tileY - 1].HasUnactuatedTile)) && (!Main.tile[tileX, tileY - 1].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 1].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 1].TileType] || (Main.tile[tileX, tileY - 1].IsHalfBlock && (!Main.tile[tileX, tileY - 4].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 4].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 4].TileType]))) && (!Main.tile[tileX, tileY - 2].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 2].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 2].TileType]) && (!Main.tile[tileX, tileY - 3].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX, tileY - 3].TileType] || Main.tileSolidTop[Main.tile[tileX, tileY - 3].TileType]) && (!Main.tile[tileX - dir, tileY - 3].HasUnactuatedTile || !Main.tileSolid[Main.tile[tileX - dir, tileY - 3].TileType]))
+                        {
+                            float tilePosY = tileY * 16;
+                            if (Main.tile[tileX, tileY].IsHalfBlock)
+                                tilePosY += 8f;
+
+                            if (Main.tile[tileX, tileY - 1].IsHalfBlock)
+                                tilePosY -= 8f;
+
+                            if (tilePosY < futurePos.Y + (float)npc.height)
+                            {
+                                float difference = futurePos.Y + (float)npc.height - tilePosY;
+                                if (difference <= 16.1f)
+                                {
+                                    npc.gfxOffY += npc.position.Y + (float)npc.height - tilePosY;
+                                    npc.position.Y = tilePosY - (float)npc.height;
+                                }
+
+                                if (difference < 9f)
+                                    npc.stepSpeed = 1f;
+                                else
+                                    npc.stepSpeed = 2f;
+                            }
+
+                        }
+                    }
                 }
             }
             else
@@ -3219,6 +3355,7 @@ namespace TerRoguelike.NPCs
                 maxSpawns = 0;
             }
         }
+
         public override void OnSpawn(NPC npc, IEntitySource source)
         {
             whoAmI = npc.whoAmI;
@@ -3248,11 +3385,50 @@ namespace TerRoguelike.NPCs
                 }
             }
 
+            if (TerRoguelikeBoss && TerRoguelikeMenu.RuinedMoonActive)
+            {
+                AdaptiveArmorEnabled = true;
+            }
+
             SpawnManager.ApplyNPCDifficultyScaling(npc, this);
+
+            if (TerRoguelikeWorld.escape && TerRoguelikeBoss)
+            {
+                EnemyHealthBarSystem.enemyHealthBar = new([npc.whoAmI], npc.GivenOrTypeName);
+            }
         }
         public override bool PreAI(NPC npc)
         {
             diminishingDR = 0;
+
+            maxUpdates = 1;
+            if (eliteVars.tainted)
+            {
+                AdaptiveArmorEnabled = true;
+                AdaptiveArmorDecayRate = 280;
+                AdaptiveArmorCap = 200;
+                maxUpdates = 2;
+                npc.knockBackResist = 0;
+            }
+            if (eliteVars.slugged)
+            {
+                AdaptiveArmorEnabled = true;
+                AdaptiveArmorDecayRate = 280;
+                diminishingDR += 20;
+                if (sluggedSlowApplied)
+                {
+                    npc.velocity /= 0.85f;
+                    sluggedSlowApplied = false;
+                }
+                npc.knockBackResist = 0;
+            }
+            if (eliteVars.burdened)
+            {
+                AdaptiveArmorEnabled = true;
+                AdaptiveArmorDecayRate = 280;
+                npc.knockBackResist = 0;
+            }
+
             if (ballAndChainSlowApplied) // grant slowed velocity back as an attempt to make the ai run normall as if it was going full speed
             {
                 npc.velocity /= 0.85f;
@@ -3262,83 +3438,37 @@ namespace TerRoguelike.NPCs
         }
         public override void PostAI(NPC npc)
         {
-            if (ignitedStacks != null && ignitedStacks.Count > 0) // ignite debuff logic
-            {
-                if (ignitedHitCooldown <= 0)
-                {
-                    int hitDamage = 0;
-                    int targetDamage = (int)(npc.lifeMax * 0.01f);
-                    int owner = -1;
-
-                    for (int i = 0; i < ignitedStacks.Count; i++)
-                    {
-                        var igniteStack = ignitedStacks[i];
-                        int myDamageCap = igniteStack.DamageCapPerTick;
-                        int myTargetDamage = targetDamage;
-                        if (myTargetDamage > myDamageCap)
-                            myTargetDamage = myDamageCap;
-                        else if (myTargetDamage < 1)
-                            myTargetDamage = 1;
-
-                        if (ignitedStacks[i].DamageToDeal < myTargetDamage)
-                        {
-                            hitDamage += ignitedStacks[i].DamageToDeal;
-                            ignitedStacks[i].DamageToDeal = 0;
-                        }
-                        else
-                        {
-                            hitDamage += myTargetDamage;
-                            ignitedStacks[i].DamageToDeal -= myTargetDamage;
-                        }
-                        if (i == ignitedStacks.Count - 1)
-                        {
-                            owner = ignitedStacks[i].Owner;
-                        }
-                    }
-                    IgniteHit(hitDamage, npc, owner);
-                    ignitedStacks.RemoveAll(x => x.DamageToDeal <= 0);
-                }
-            }
-            if (ignitedHitCooldown > 0)
-                ignitedHitCooldown--;
-
-            if (bleedingStacks != null && bleedingStacks.Count > 0) // bleeding debuff logic
-            {
-                if (bleedingHitCooldown <= 0)
-                {
-                    int hitDamage = 0;
-                    int targetDamage = 40;
-                    int owner = -1;
-
-                    for (int i = 0; i < bleedingStacks.Count; i++)
-                    {
-                        if (bleedingStacks[i].DamageToDeal < targetDamage)
-                        {
-                            hitDamage += ignitedStacks[i].DamageToDeal;
-                            bleedingStacks[i].DamageToDeal = 0;
-                        }
-                        else
-                        {
-                            hitDamage += targetDamage;
-                            bleedingStacks[i].DamageToDeal -= targetDamage;
-                        }
-                        if (i == bleedingStacks.Count - 1)
-                        {
-                            owner = bleedingStacks[i].Owner;
-                        }
-                    }
-                    BleedingHit(hitDamage, npc, owner);
-                    bleedingStacks.RemoveAll(x => x.DamageToDeal <= 0);
-                }
-            }
-            if (bleedingHitCooldown > 0)
-                bleedingHitCooldown--;
-
             if (ballAndChainSlow > 0) // slow down
             {
                 npc.velocity *= 0.85f;
                 ballAndChainSlow--;
                 ballAndChainSlowApplied = true;
+            }
+            if (eliteVars.slugged)
+            {
+                npc.velocity *= 0.85f;
+                sluggedSlowApplied = true;
+            }
+            if (eliteVars.burdened)
+            {
+                bool pass = true;
+                int projType = ModContent.ProjectileType<ResidualBurden>();
+                Vector2 spawnPos = npc.Center;
+                for (int i = 0; i < Main.maxProjectiles; i++)
+                {
+                    var proj = Main.projectile[i];
+                    if (!proj.active || proj.type != projType || proj.timeLeft < 45) continue;
+
+                    var projRect = proj.getRect();
+                    projRect.Inflate(6, 6);
+                    if (projRect.Contains(spawnPos.ToPoint()))
+                    {
+                        pass = false;
+                        break;
+                    }
+                }
+                if (pass)
+                    Projectile.NewProjectileDirect(npc.GetSource_FromThis(), spawnPos, Vector2.Zero, projType, npc.damage, 0);
             }
 
             if (hostileTurnedAlly)
@@ -3374,15 +3504,104 @@ namespace TerRoguelike.NPCs
                     friendlyFireHitCooldown--;
             }
 
-            if (AdaptiveArmor > 0)
+            if (currentUpdate == 1)
             {
-                if (AdaptiveArmor > AdaptiveArmorCap)
-                    AdaptiveArmor = AdaptiveArmorCap;
+                if (ignitedStacks != null && ignitedStacks.Count > 0) // ignite debuff logic
+                {
+                    if (ignitedHitCooldown <= 0)
+                    {
+                        int hitDamage = 0;
+                        int targetDamage = (int)(npc.lifeMax * 0.01f);
+                        int owner = -1;
 
-                AdaptiveArmor -= AdaptiveArmorDecayRate / 60f;
-                if (AdaptiveArmor < 0)
-                    AdaptiveArmor = 0;
+                        for (int i = 0; i < ignitedStacks.Count; i++)
+                        {
+                            var igniteStack = ignitedStacks[i];
+                            int myDamageCap = igniteStack.DamageCapPerTick;
+                            int myTargetDamage = targetDamage;
+                            if (myTargetDamage > myDamageCap)
+                                myTargetDamage = myDamageCap;
+                            else if (myTargetDamage < 1)
+                                myTargetDamage = 1;
+
+                            if (ignitedStacks[i].DamageToDeal < myTargetDamage)
+                            {
+                                hitDamage += ignitedStacks[i].DamageToDeal;
+                                ignitedStacks[i].DamageToDeal = 0;
+                            }
+                            else
+                            {
+                                hitDamage += myTargetDamage;
+                                ignitedStacks[i].DamageToDeal -= myTargetDamage;
+                            }
+                            if (i == ignitedStacks.Count - 1)
+                            {
+                                owner = ignitedStacks[i].Owner;
+                            }
+                        }
+                        IgniteHit(hitDamage, npc, owner);
+                        ignitedStacks.RemoveAll(x => x.DamageToDeal <= 0);
+                    }
+                }
+                if (ignitedHitCooldown > 0)
+                    ignitedHitCooldown--;
+
+                if (bleedingStacks != null && bleedingStacks.Count > 0) // bleeding debuff logic
+                {
+                    if (bleedingHitCooldown <= 0)
+                    {
+                        int hitDamage = 0;
+                        int targetDamage = 40;
+                        int owner = -1;
+
+                        for (int i = 0; i < bleedingStacks.Count; i++)
+                        {
+                            if (bleedingStacks[i].DamageToDeal < targetDamage)
+                            {
+                                hitDamage += ignitedStacks[i].DamageToDeal;
+                                bleedingStacks[i].DamageToDeal = 0;
+                            }
+                            else
+                            {
+                                hitDamage += targetDamage;
+                                bleedingStacks[i].DamageToDeal -= targetDamage;
+                            }
+                            if (i == bleedingStacks.Count - 1)
+                            {
+                                owner = bleedingStacks[i].Owner;
+                            }
+                        }
+                        BleedingHit(hitDamage, npc, owner);
+                        bleedingStacks.RemoveAll(x => x.DamageToDeal <= 0);
+                    }
+                }
+                if (bleedingHitCooldown > 0)
+                    bleedingHitCooldown--;
+
+                if (AdaptiveArmor > 0)
+                {
+                    if (AdaptiveArmor > AdaptiveArmorCap)
+                        AdaptiveArmor = AdaptiveArmorCap;
+
+                    AdaptiveArmor -= AdaptiveArmorDecayRate / 60f;
+                    if (AdaptiveArmor < 0)
+                        AdaptiveArmor = 0;
+                }
             }
+        }
+        public override bool CheckDead(NPC npc)
+        {
+            if (TerRoguelikeWorld.escape)
+            {
+                if (!activatedJstc && isRoomNPC && sourceRoomListID >= 0)
+                {
+                    Floor targetFloor = SchematicManager.FloorID[RoomList[sourceRoomListID].AssociatedFloor];
+                    if (targetFloor.jstcProgress == Floor.JstcProgress.Start)
+                        targetFloor.jstc++;
+                    activatedJstc = true;
+                }
+            }
+            return true;
         }
         public void IgniteHit(int hitDamage, NPC npc, int owner)
         {
@@ -3504,6 +3723,13 @@ namespace TerRoguelike.NPCs
                 CombatText.NewText(segRect, hit.Crit ? CombatText.DamagedHostileCrit : CombatText.DamagedHostile, hit.Damage, hit.Crit);
             }
         }
+        public override void ModifyHitPlayer(NPC npc, Player target, ref Player.HurtModifiers modifiers)
+        {
+            if (eliteVars.slugged)
+            {
+                target.ModPlayer().sluggedAttempt = true;
+            }
+        }
         public override void ModifyHoverBoundingBox(NPC npc, ref Rectangle boundingBox)
         {
             if (Segments.Count > 0)
@@ -3521,6 +3747,86 @@ namespace TerRoguelike.NPCs
                 }
             }
         }
+        public class EliteEffectHelperVars
+        {
+            public Vector2? texSize;
+            public Rectangle? frame;
+            public int vertFrameCount;
+            public int horizFrameCount;
+            public EliteEffectHelperVars(int VertFrameCount = -1, int HorizFrameCount = 1, Vector2? TexSize = null, Rectangle? Frame = null)
+            {
+                vertFrameCount = VertFrameCount;
+                horizFrameCount = HorizFrameCount;
+                texSize = TexSize;
+                frame = Frame;
+            }
+        }
+        public bool EliteEffectSpritebatch(NPC npc, EliteEffectHelperVars vars, bool end = true)
+        {
+            if (npc.IsABestiaryIconDummy)
+                return false;
+
+            var sb = Main.spriteBatch;
+            if (end)
+                sb.End();
+            if (eliteVars.tainted)
+            {
+                Effect taintedEffect = Filters.Scene["TerRoguelike:DualContrast"].GetShader().Shader;
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, taintedEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                taintedEffect.Parameters["lightTint"].SetValue(Color.Black.ToVector4());
+                taintedEffect.Parameters["darkTint"].SetValue(Color.Yellow.ToVector4());
+                taintedEffect.Parameters["contrastThreshold"].SetValue(0.3f);
+            }
+            else if (eliteVars.slugged)
+            {
+                float time = Main.GlobalTimeWrappedHourly + npc.whoAmI;
+                Vector2 texSize = vars.texSize == null ? TextureAssets.Npc[npc.type].Size() : (Vector2)vars.texSize;
+                Rectangle frame = vars.frame == null ? npc.frame : (Rectangle)vars.frame;
+                if (vars.vertFrameCount < 0)
+                    vars.vertFrameCount = Main.npcFrameCount[npc.type];
+
+                Effect maskEffect = Filters.Scene["TerRoguelike:MaskOverlay"].GetShader().Shader;
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, maskEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                Vector2 screenOff = new Vector2((float)Math.Cos(time * MathHelper.PiOver4) / texSize.X * 40, time / texSize.Y * 40);
+                Vector2 frameTopLeft = new Vector2(frame.X, frame.Y);
+                screenOff -= frameTopLeft / texSize;
+                Color tint = Color.Purple;
+
+                maskEffect.Parameters["screenOffset"].SetValue(screenOff);
+                maskEffect.Parameters["stretch"].SetValue(texSize / 300);
+                maskEffect.Parameters["replacementTexture"].SetValue(TexDict["Streaks"]);
+                maskEffect.Parameters["tint"].SetValue(tint.ToVector4());
+            }
+            else if (eliteVars.burdened)
+            {
+                float time = Main.GlobalTimeWrappedHourly + npc.whoAmI;
+                Vector2 texSize = vars.texSize == null ? TextureAssets.Npc[npc.type].Size() : (Vector2)vars.texSize;
+                Rectangle frame = vars.frame == null ? npc.frame : (Rectangle)vars.frame;
+                if (vars.vertFrameCount < 0)
+                    vars.vertFrameCount = Main.npcFrameCount[npc.type];
+
+                Effect maskEffect = Filters.Scene["TerRoguelike:MaskOverlay"].GetShader().Shader;
+                Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, Main.DefaultSamplerState, DepthStencilState.None, Main.Rasterizer, maskEffect, Main.GameViewMatrix.TransformationMatrix);
+
+                Vector2 screenOff = new Vector2((float)Math.Cos(time * MathHelper.PiOver4) / texSize.X * 40, time / texSize.Y * 70);
+                Vector2 frameTopLeft = new Vector2(frame.X, frame.Y);
+                screenOff -= frameTopLeft / texSize;
+                Color tint = Color.Lerp(Color.Teal, Color.Cyan, 0.3f);
+
+                maskEffect.Parameters["screenOffset"].SetValue(screenOff);
+                maskEffect.Parameters["stretch"].SetValue(texSize / 400);
+                maskEffect.Parameters["replacementTexture"].SetValue(TexDict["Crust"]);
+                maskEffect.Parameters["tint"].SetValue(tint.ToVector4());
+            }
+            else
+            {
+                StartVanillaSpritebatch(false);
+                return false;
+            }
+            return true;
+        }
         public override bool PreDraw(NPC npc, SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)
         {
             if (ignitedStacks != null && ignitedStacks.Count > 0 && !OverrideIgniteVisual)
@@ -3533,7 +3839,7 @@ namespace TerRoguelike.NPCs
                 Color color = Color.Lerp(Color.Yellow, Color.OrangeRed, Main.rand.NextFloat(0.4f, 0.6f + float.Epsilon) + 0.2f + (0.2f * (float)Math.Cos((Main.GlobalTimeWrappedHourly * 20f)))) * 0.8f;
                 Vector3 colorHSL = Main.rgbToHsl(color);
                 float outlineThickness = 1f;
-                Vector2 vector = new Vector2(npc.frame.Width / 2f, npc.frame.Height / 2f);
+                Vector2 vector = IgniteCentered ? new Vector2(npc.frame.Width / 2f, npc.frame.Height / 2f) : new Vector2(npc.frame.Width / 2f, texture.Height / (float)Main.npcFrameCount[npc.type] * 0.5f);
                 SpriteEffects spriteEffects = npc.spriteDirection == -1 ? SpriteEffects.None : SpriteEffects.FlipHorizontally;
 
                 GameShaders.Misc["TerRoguelike:BasicTint"].UseOpacity(1f);
@@ -3541,9 +3847,13 @@ namespace TerRoguelike.NPCs
                 GameShaders.Misc["TerRoguelike:BasicTint"].Apply();
 
                 Vector2 position = GetDrawCenter(npc) + (Vector2.UnitY * npc.gfxOffY);
+                Vector2 halfSize = vector;
                 for (float i = 0; i < 1; i += 0.125f)
                 {
-                    spriteBatch.Draw(texture, position + (i * MathHelper.TwoPi + npc.rotation).ToRotationVector2() * outlineThickness - Main.screenPosition, npc.frame, color, npc.rotation, vector, npc.scale, spriteEffects, 0f);
+                    if (!IgniteCentered)
+                        spriteBatch.Draw(texture, npc.Bottom + (i * MathHelper.TwoPi + npc.rotation).ToRotationVector2() * outlineThickness - screenPos + new Vector2((float)(-texture.Width) * npc.scale / 2f + halfSize.X * npc.scale, (float)(-texture.Height) * npc.scale / (float)Main.npcFrameCount[npc.type] + 4f + halfSize.Y * npc.scale + Main.NPCAddHeight(npc) + npc.gfxOffY), (Rectangle?)npc.frame, Color.White, npc.rotation, halfSize, npc.scale, spriteEffects, 0f);
+                    else
+                        spriteBatch.Draw(texture, position + (i * MathHelper.TwoPi + npc.rotation).ToRotationVector2() * outlineThickness - Main.screenPosition, npc.frame, color, npc.rotation, vector, npc.scale, spriteEffects, 0f);
                 }
 
                 spriteBatch.End();
@@ -3556,6 +3866,8 @@ namespace TerRoguelike.NPCs
                 DrawRotatlingBloodParticles(false, npc);
             }
 
+            EliteEffectSpritebatch(npc, new());
+
             return true;
         }
         public override void DrawEffects(NPC npc, ref Color drawColor)
@@ -3563,7 +3875,7 @@ namespace TerRoguelike.NPCs
             if (ignitedStacks != null && ignitedStacks.Count > 0)
             {
                 drawColor = Color.Lerp(Color.White, Color.OrangeRed, 0.4f);
-                for (int i = 0; i < ignitedStacks.Count; i++)
+                for (int i = 0; i < Math.Min(ignitedStacks.Count, 10); i++)
                 {
                     if (Main.rand.NextBool(5))
                     {
@@ -3582,6 +3894,7 @@ namespace TerRoguelike.NPCs
         }
         public override void PostDraw(NPC npc, SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)
         {
+            StartVanillaSpritebatch();
             if (bleedingStacks != null && bleedingStacks.Count > 0)
             {
                 DrawRotatlingBloodParticles(true, npc);
@@ -3611,11 +3924,13 @@ namespace TerRoguelike.NPCs
             Color color = Color.Red * 1f;
             Vector2 position = GetDrawCenter(npc) + (Vector2.UnitY * npc.gfxOffY);
 
-            for (int i = 0; i < bleedingStacks.Count; i++)
+            int count = Math.Min(bleedingStacks.Count, 100);
+            Main.NewText(count);
+            for (int i = 0; i < count; i++)
             {
                 Vector2 specificPosition = position;
                 float rotation = MathHelper.Lerp(0, MathHelper.TwoPi, Main.GlobalTimeWrappedHourly * 1.5f);
-                float rotationCompletionOffset = MathHelper.TwoPi / bleedingStacks.Count * i;
+                float rotationCompletionOffset = MathHelper.TwoPi / count * i;
                 rotation += rotationCompletionOffset;
                 specificPosition += new Vector2(0, 16).RotatedBy(rotation);
                 specificPosition += (specificPosition - position) * new Vector2(((npc.width + npc.frame.Width) * 0.5f * npc.scale) / 32f, -0.5f);

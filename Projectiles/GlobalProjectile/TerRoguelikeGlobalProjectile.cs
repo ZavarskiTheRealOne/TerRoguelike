@@ -1,4 +1,5 @@
 ﻿using Microsoft.Xna.Framework;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
@@ -10,6 +11,7 @@ using TerRoguelike.NPCs;
 using TerRoguelike.TerPlayer;
 using TerRoguelike.World;
 using static TerRoguelike.Managers.NPCManager;
+using static TerRoguelike.NPCs.TerRoguelikeGlobalNPC;
 using static TerRoguelike.Utilities.TerRoguelikeUtils;
 
 namespace TerRoguelike.Projectiles
@@ -30,6 +32,7 @@ namespace TerRoguelike.Projectiles
         public float notedBoostedDamage = 1f;
         public int targetPlayer = -1;
         public int targetNPC = -1;
+        public bool sluggedEffect = false;
         public override bool PreAI(Projectile projectile)
         {
             extraBounces = 0; // set bounces in projectile ai.
@@ -44,6 +47,13 @@ namespace TerRoguelike.Projectiles
             }
             return null;
         }
+        public override void ModifyHitPlayer(Projectile projectile, Player target, ref Player.HurtModifiers modifiers)
+        {
+            if (sluggedEffect)
+            {
+                target.ModPlayer().sluggedAttempt = true;
+            }
+        }
         public override void ModifyHitNPC(Projectile projectile, NPC target, ref NPC.HitModifiers modifiers)
         {
             Player player = Main.player[projectile.owner];
@@ -55,7 +65,7 @@ namespace TerRoguelike.Projectiles
             }
             if (modPlayer.bouncyBall > 0)
             {
-                modifiers.SourceDamage *= 1 + (0.15f * bounceCount);
+                modifiers.SourceDamage *= 1 + (0.15f * Math.Min(bounceCount, modPlayer.bouncyBall));
             }
             
             //Crit inheritance and custom crit chance supported by proc luck
@@ -111,6 +121,8 @@ namespace TerRoguelike.Projectiles
                         projectile.hostile = true;
                         projectile.damage /= 2;
                     }
+                    if (modNPC.eliteVars.slugged)
+                        sluggedEffect = true;
                 }
                 else if (parentSource.Entity is Projectile)
                 {
@@ -126,6 +138,7 @@ namespace TerRoguelike.Projectiles
                             projectile.friendly = parentProj.friendly;
                         }
                     }
+                    sluggedEffect = parentModProj.sluggedEffect;
                 }
             }
         }

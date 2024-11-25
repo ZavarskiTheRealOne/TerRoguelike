@@ -5,6 +5,7 @@ using Terraria.Graphics;
 using Terraria.Graphics.CameraModifiers;
 using Terraria.ModLoader;
 using TerRoguelike.TerPlayer;
+using TerRoguelike.World;
 
 namespace TerRoguelike.Systems
 {
@@ -12,11 +13,11 @@ namespace TerRoguelike.Systems
     {
         public static int cutsceneTimer;
         public static int cutsceneDuration;
-        private static float cutsceneZoom;
+        public static float cutsceneZoom;
         public static Vector2 cameraTargetCenter;
         private static Vector2 overrideCameraCenter;
-        private static int easeInTime;
-        private static int easeOutTime;
+        public static int easeInTime;
+        public static int easeOutTime;
         public static bool cutsceneActive;
         public static bool easeInActivated;
         public static bool easeOutActivated;
@@ -92,8 +93,11 @@ namespace TerRoguelike.Systems
                 }
             }
         }
-        public static void SetCutscene(Vector2 cameraTarget, int time, int easeIn, int easeOut, float targetZoom)
+        public static void SetCutscene(Vector2 cameraTarget, int time, int easeIn, int easeOut, float targetZoom, CutsceneSource source = CutsceneSource.Misc)
         {
+            if (TerRoguelikeWorld.escape && source == CutsceneSource.Boss)
+                return;
+
             cutsceneTimer = time;
             cutsceneDuration = time;
             cameraTargetCenter = cameraTarget;
@@ -104,6 +108,12 @@ namespace TerRoguelike.Systems
             easeOutActivated = false;
             cutsceneZoom = targetZoom;
             cutsceneDisableControl = true;
+        }
+
+        public enum CutsceneSource
+        {
+            Misc = 0,
+            Boss = 1,
         }
     }
 }

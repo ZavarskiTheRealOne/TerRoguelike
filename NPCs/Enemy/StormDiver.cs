@@ -52,6 +52,7 @@ namespace TerRoguelike.NPCs.Enemy
             modNPC.drawCenter = new Vector2(0, -7);
             lightTex = TexDict["StormDiverGlow"];
             crossTex = TexDict["CrossSpark"];
+            NPC.lavaImmune = true;
         }
         public override void OnSpawn(IEntitySource source)
         {
@@ -98,7 +99,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.ai[0] = 0;
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 20.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 50.0; i++)
                 {
                     Dust.NewDust(NPC.position, NPC.width, NPC.height, 241, hit.HitDirection, -1f);
                     if (Main.rand.NextBool(4))

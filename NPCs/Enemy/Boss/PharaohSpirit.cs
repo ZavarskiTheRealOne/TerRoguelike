@@ -25,6 +25,7 @@ using static TerRoguelike.Utilities.TerRoguelikeUtils;
 using Terraria.Graphics.Effects;
 using static TerRoguelike.Systems.EnemyHealthBarSystem;
 using static TerRoguelike.MainMenu.TerRoguelikeMenu;
+using TerRoguelike.World;
 
 namespace TerRoguelike.NPCs.Enemy.Boss
 {
@@ -79,6 +80,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 30;
             NPC.height = 76;
             NPC.aiStyle = -1;
@@ -93,6 +95,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             glowTex = TexDict["PharaohSpiritGlow"];
             noiseTex = TexDict["Crust"];
             circleGlowTex = TexDict["CircularGlow"];
+            modNPC.IgniteCentered = true;
         }
         public override void DrawBehind(int index)
         {
@@ -104,8 +107,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             rumbleSlot = SoundEngine.PlaySound(SoundID.DD2_EtherianPortalIdleLoop with { Volume = 0.03f, PitchVariance = 0f, Pitch = 0.8f }, NPC.Center);
 
             NPC.Opacity = 0;
-            NPC.immortal = true;
-            NPC.dontTakeDamage = true;
+            NPC.immortal = NPC.dontTakeDamage = !TerRoguelikeWorld.escape;
             currentFrame = 0;
             NPC.localAI[0] = -(cutsceneDuration + 30);
             NPC.direction = -1;
@@ -170,7 +172,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
 
                 if (NPC.localAI[0] == -cutsceneDuration)
                 {
-                    CutsceneSystem.SetCutscene(spawnPos, cutsceneDuration, 30, 30, 2.5f);
+                    CutsceneSystem.SetCutscene(spawnPos, cutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
                 }
                 NPC.localAI[0]++;
                 
@@ -233,7 +235,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                     NPC.immortal = false;
                     NPC.dontTakeDamage = false;
                     NPC.ai[1] = 0;
-                    enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.FullName);
+                    if (!TerRoguelikeWorld.escape)
+                        enemyHealthBar = new EnemyHealthBar([NPC.whoAmI], NPC.GivenOrTypeName);
                 }
             }
             else
@@ -245,7 +248,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         }
         public void BossAI()
         {
-            bool hardMode = difficulty == Difficulty.BloodMoon;
+            bool hardMode = (int)difficulty >= (int)Difficulty.BloodMoon;
 
             target = modNPC.GetTarget(NPC);
 
@@ -299,7 +302,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 if (NPC.ai[1] == 30)
                 {
                     Room room = modNPC.sourceRoomListID >= 0 ? RoomList[modNPC.sourceRoomListID] : null;
-                    int nadoCount = 4;
+                    int nadoCount = RuinedMoonActive ? 7 : 4;
                     for (int i = 0; i < nadoCount; i++)
                     {
                         float completion = (i + 1f) / (nadoCount + 1f);
@@ -596,6 +599,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 NPC.rotation = 0;
                 NPC.velocity *= 0;
                 modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
                 if (modNPC.isRoomNPC)
                 {
                     if (ActiveBossTheme != null)
@@ -623,7 +628,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                         }
                     }
                 }
-                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f);
+                CutsceneSystem.SetCutscene(NPC.Center, deathCutsceneDuration, 30, 30, 2.5f, CutsceneSystem.CutsceneSource.Boss);
             }
             deadTime++;
 
@@ -693,7 +698,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             Color color = new Color(222, 108, 48) * 0.7f;
             if (NPC.life > 0)
             {
-                for (int i = 0; i < hit.Damage / 33d; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 2000.0; i++)
                 {
                     Dust d = Main.dust[Dust.NewDust(NPC.position, NPC.width, NPC.height, DustID.Sandstorm)];
                     d.color = color;
@@ -848,7 +853,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 Color tint = wantedColor * sandyOverlayOpacityMultiplier;
 
                 maskEffect.Parameters["screenOffset"].SetValue(screenOff);
-                maskEffect.Parameters["stretch"].SetValue(new Vector2(1f, Main.npcFrameCount[Type]));
+                maskEffect.Parameters["stretch"].SetValue(new Vector2(1, Main.npcFrameCount[Type]));
                 maskEffect.Parameters["replacementTexture"].SetValue(noiseTex);
                 maskEffect.Parameters["tint"].SetValue(tint.ToVector4());
 

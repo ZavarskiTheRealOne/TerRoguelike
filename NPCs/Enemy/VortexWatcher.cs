@@ -53,6 +53,7 @@ namespace TerRoguelike.NPCs.Enemy
             lightTex = TexDict["VortexWatcherGlow"];
             ballTex = TexDict["CircularGlow"];
             vortexTex = TexDict["BlackVortex"];
+            NPC.lavaImmune = true;
         }
         public override void OnSpawn(IEntitySource source)
         {
@@ -111,7 +112,7 @@ namespace TerRoguelike.NPCs.Enemy
             NPC.ai[0] = 0;
             if (NPC.life > 0)
             {
-                for (int i = 0; (double)i < hit.Damage / 20.0; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 100.0; i++)
                 {
                     Dust.NewDust(NPC.position, NPC.width, NPC.height, 241, hit.HitDirection, -1f);
                     if (Main.rand.NextBool(4))

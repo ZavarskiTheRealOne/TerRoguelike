@@ -19,6 +19,10 @@ using Terraria.ID;
 using TerRoguelike.Schematics;
 using rail;
 using Terraria.ModLoader.Core;
+using System.Collections.Generic;
+using TerRoguelike.Rooms;
+using TerRoguelike.Floors;
+using TerRoguelike.MainMenu;
 
 namespace TerRoguelike.Managers
 {
@@ -86,6 +90,8 @@ namespace TerRoguelike.Managers
             return ((anchor + new Vector2(addTileX, addTileY)) * 16f) + new Vector2(autoAddX, autoAddY);
         }
 
+        public virtual bool AllowSettingPlayerCurrentRoom => active;
+
         //potential NPC variables
         public Vector2[] NPCSpawnPosition = new Vector2[RoomSpawnCap];
         public int[] NPCToSpawn = new int[RoomSpawnCap];
@@ -101,6 +107,15 @@ namespace TerRoguelike.Managers
         public bool wallActive = false; // whether the barriers of the room are active
         public virtual void AddRoomNPC(Vector2 npcSpawnPosition, int npcToSpawn, int timeUntilSpawn, int telegraphDuration, float telegraphSize = 0, int wave = 0)
         {
+            if (TerRoguelikeWorld.currentLoop > 0 && FloorID[AssociatedFloor].Stage != 5 && Main.rand.NextFloat() < 0.02f)
+            {
+                List<int> lunarSpawnSelect = [];
+                lunarSpawnSelect.AddRange(new LunarPillarRoomBottomLeft().SpawnSelection);
+                lunarSpawnSelect.AddRange(new LunarPillarRoomBottomRight().SpawnSelection);
+                lunarSpawnSelect.AddRange(new LunarPillarRoomTopLeft().SpawnSelection);
+                lunarSpawnSelect.AddRange(new LunarPillarRoomTopRight().SpawnSelection);
+                npcToSpawn = lunarSpawnSelect[Main.rand.Next(lunarSpawnSelect.Count)];
+            }
             for (int i = 0; i < RoomSpawnCap; i++)
             {
                 if (!NotSpawned[i])
@@ -133,7 +148,7 @@ namespace TerRoguelike.Managers
             if (!initialized) // initialize the room
                 InitializeRoom();
 
-            if (closedTime <= 60 && (TerRoguelikeWorld.escapeTime > TerRoguelikeWorld.escapeTimeSet - 180 || !TerRoguelikeWorld.escape)) //wall is visually active up to 1 second after room clear
+            if (closedTime <= 60 && (TerRoguelikeWorld.escapeTime > TerRoguelikeWorld.escapeTimeSet - 180 || !TerRoguelikeWorld.escape || (TerRoguelikeWorld.escape && IsBossRoom && FloorID[AssociatedFloor].jstcProgress >= Floor.JstcProgress.Boss))) //wall is visually active up to 1 second after room clear
                 wallActive = true;
 
             if (!active) // room done, closed time increments
@@ -155,7 +170,32 @@ namespace TerRoguelike.Managers
 
                     if (TimeUntilSpawn[i] - roomTime + waveStartTime <= 0) //spawn pending enemy that has reached it's time
                     {
-                        SpawnEnemy(NPCToSpawn[i], NPCSpawnPosition[i], myRoom, TelegraphDuration[i], TelegraphSize[i]);
+                        var eliteVars = new TerRoguelikeGlobalNPC.EliteVars();
+                        if (TerRoguelikeWorld.currentLoop > 0)
+                        {
+                            EliteCredits += 0.34f + 0.66f * TerRoguelikeWorld.currentLoop;
+                            float eliteRoll = (float)Math.Pow(EliteCredits, 2) / (EliteCredits + 15);
+                            if (Main.rand.NextFloat(15) < eliteRoll)
+                            {
+                                EliteCredits = 0;
+                                switch (Main.rand.Next(3))
+                                {
+                                    default:
+                                    case 0:
+                                        eliteVars.tainted = true;
+                                        break;
+                                    case 1:
+                                        eliteVars.slugged = true;
+                                        break;
+                                    case 2:
+                                        eliteVars.burdened = true;
+                                        break;
+                                }
+                            }
+                        }
+
+                        SpawnEnemy(NPCToSpawn[i], NPCSpawnPosition[i], myRoom, TelegraphDuration[i], TelegraphSize[i], eliteVars);
+
                         lastTelegraphDuration = TelegraphDuration[i];
                         waveClearGraceTime = roomTime;
                         roomClearGraceTime = -1;
@@ -342,25 +382,29 @@ namespace TerRoguelike.Managers
                 if (boundLeft)
                 {
                     npc.position.X = (RoomPosition.X + 1f) * 16f - shrink.X;
-                    npc.velocity.X = 0;
+                    if (npc.velocity.X < 0)
+                        npc.velocity.X = 0;
                     npc.collideX = true;
                 }
                 if (boundRight)
                 {
                     npc.position.X = ((RoomPosition.X - 1f + RoomDimensions.X) * 16f + shrink.X) - (float)npc.width;
-                    npc.velocity.X = 0;
+                    if (npc.velocity.X > 0)
+                        npc.velocity.X = 0;
                     npc.collideX = true;
                 }
                 if (boundTop)
                 {
                     npc.position.Y = (RoomPosition.Y + 1f) * 16f - shrink.Y;
-                    npc.velocity.Y = 0;
+                    if (npc.velocity.Y < 0)
+                        npc.velocity.Y = 0;
                     npc.collideY = true;
                 }
                 if (boundBottom)
                 {
                     npc.position.Y = ((RoomPosition.Y - (1f) + RoomDimensions.Y) * 16f + shrink.Y) - (float)npc.height;
-                    npc.velocity.Y = 0;
+                    if (npc.velocity.Y > 0)
+                        npc.velocity.Y = 0;
                     npc.collideY = true;
                 }
             }
@@ -504,7 +548,7 @@ namespace TerRoguelike.Managers
             {
                 SetCalm(nextFloor.Soundtrack.CalmTrack);
                 SetCombat(nextFloor.Soundtrack.CombatTrack);
-                SetMusicMode(MusicStyle.Dynamic);
+                SetMusicMode(nextFloor.Name == "Sanctuary" ? MusicStyle.AllCalm : MusicStyle.Dynamic);
                 CombatVolumeInterpolant = 0;
                 CalmVolumeInterpolant = 0;
                 CalmVolumeLevel = nextFloor.Soundtrack.Volume;
@@ -642,6 +686,10 @@ namespace TerRoguelike.Managers
         public virtual Vector2 DescendTeleportPosition()
         {
             return (RoomPosition + (RoomDimensions / 2f)) * 16f;
+        }
+        public virtual void PreResetRoom()
+        {
+
         }
         public void PlayerItemsUpdate()
         {
@@ -841,10 +889,14 @@ namespace TerRoguelike.Managers
         }
         public virtual bool ClearCondition()
         {
-            return !anyAlive && roomClearGraceTime == 0;
+            return (!anyAlive && roomClearGraceTime == 0) || (TerRoguelikeWorld.escape && IsBossRoom && bossDead && FloorID[AssociatedFloor].jstcProgress >= Floor.JstcProgress.Boss);
         }
         public virtual bool StartCondition()
         {
+            if (IsBossRoom && TerRoguelikeWorld.escape && (int)FloorID[AssociatedFloor].jstcProgress < (int)(Floor.JstcProgress.Boss))
+            {
+                awake = false;
+            }
             return awake;
         }
         public Vector2 FindAirNearRoomCenter()

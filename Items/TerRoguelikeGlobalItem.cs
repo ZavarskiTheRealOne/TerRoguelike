@@ -9,6 +9,9 @@ using Terraria.GameContent.ItemDropRules;
 using Terraria.DataStructures;
 using TerRoguelike.World;
 using Terraria.ID;
+using TerRoguelike.MainMenu;
+using Terraria.Localization;
+using TerRoguelike.Utilities;
 
 namespace TerRoguelike.Items
 {
@@ -42,7 +45,26 @@ namespace TerRoguelike.Items
                 case ItemID.JungleGrassSeeds:
                 case ItemID.GrassSeeds:
                 case ItemID.NaturesGift:
+                case ItemID.Pumpkin:
                     return true;
+            }
+        }
+        public override void ModifyTooltips(Item item, List<TooltipLine> tooltips)
+        {
+            if (TerRoguelikeMenu.RuinedMoonActive && item.rare == ItemRarityID.Gray)
+            {
+                tooltips.Add(new(TerRoguelike.Instance, "TrashDescription", Language.GetOrRegister("Mods.TerRoguelike.TrashDescription").Value));
+            }
+        }
+        public override void UpdateInventory(Item item, Player player)
+        {
+            if (item.rare == ItemRarityID.Gray && TerRoguelikeMenu.RuinedMoonActive)
+            {
+                var dateTime = DateTime.Now;
+                if (dateTime.DayOfWeek == DayOfWeek.Tuesday && dateTime.Hour == 22)
+                {
+                    player.ModPlayer().trash += item.stack;
+                }
             }
         }
     }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
+using TerRoguelike.MainMenu;
 using TerRoguelike.Utilities;
 using static TerRoguelike.Schematics.SchematicManager;
 
@@ -39,7 +40,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
                 NPC.velocity *= 0;
             }
             NPC.ai[0]++;
-            if (NPC.ai[0] >= 540)
+            if (NPC.ai[0] >= (TerRoguelikeMenu.RuinedMoonActive ? 90 : 540))
             {
                 int whoAmI = NPC.NewNPC(NPC.GetSource_FromThis(), (int)NPC.Center.X, (int)NPC.Center.Y, ModContent.NPCType<Clinger>());
                 NPC npc = Main.npc[whoAmI];
@@ -54,7 +55,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         {
             if (NPC.life > 0)
             {
-                for (int i = 0; i < 10; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 50.0; i++)
                 {
                     int d = Dust.NewDust(NPC.position, NPC.width, NPC.height, 238, hit.HitDirection, -1f);
                     Main.dust[d].noGravity = true;

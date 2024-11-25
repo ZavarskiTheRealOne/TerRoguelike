@@ -52,6 +52,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
         public override void SetDefaults()
         {
             base.SetDefaults();
+            modNPC.TerRoguelikeBoss = true;
             NPC.width = 46;
             NPC.height = 76;
             NPC.aiStyle = -1;
@@ -150,6 +151,8 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             if (NPC.ai[3] == 0)
             {
                 modNPC.ignitedStacks.Clear();
+                modNPC.bleedingStacks.Clear();
+                modNPC.ballAndChainSlow = 0;
             }
             NPC.ai[3]++;
             NPC parent = Main.npc[(int)NPC.ai[0]];
@@ -182,7 +185,7 @@ namespace TerRoguelike.NPCs.Enemy.Boss
             }
             else
             {
-                for (int i = 0; (double)i < hit.Damage * 0.01d; i++)
+                for (int i = 0; (double)i < hit.Damage / (double)NPC.lifeMax * 1000.0; i++)
                 {
                     int d = Dust.NewDust(NPC.position, NPC.width, NPC.height, DustID.Vortex, hit.HitDirection, -1f, 0, default, 0.5f);
                     Main.dust[d].noLight = true;
